@@ -183,6 +183,7 @@ fn test_pierre_memory() {
     let otlp_bytes = OtlpProtoBytes::ExportMetricsRequest(Bytes::from(buf));
 
     let _profiler = dhat::Profiler::builder().testing().build();
+    // let _profiler = dhat::Profiler::new_heap();
 
     let number_of_items = otlp_bytes.num_items();
 
@@ -195,4 +196,12 @@ fn test_pierre_memory() {
 
     );
     assert_eq!(number_of_items, 11);
+    dhat::assert!(stats.total_blocks < 500);
+    dhat::assert!(stats.max_bytes < 4 * 1024 * 1024);
+
+    // From the agent
+    // .testing() enables dhat::assert!
+    // drop .testing() and use Profiler::new_heap() to get dhat-heap.json to load into viewer
+    // dhat::assert!(stats.total_blocks < 500);
+    // dhat::assert!(stats.max_bytes < 4 * 1024 * 1024);
 }

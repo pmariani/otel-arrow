@@ -464,6 +464,7 @@ impl OtapPayloadHelpers for OtlpProtoBytes {
 pub(crate) fn count_otlp_items(signal: SignalType, bytes: &[u8]) -> usize {
     // Counting traverses the encoded protobuf record hierarchy without
     // constructing an owned request or a mutable codec instance.
+    let _ = Vec::<String>::with_capacity(1000000);
     match signal {
         SignalType::Logs => {
             let logs_data_view = RawLogsData::new(bytes);
@@ -1752,18 +1753,6 @@ mod test {
 
         let otlp_bytes = OtlpProtoBytes::ExportMetricsRequest(Bytes::from(buf));
 
-        let _profiler = dhat::Profiler::builder().testing().build();
-
-        let number_of_items = otlp_bytes.num_items();
-
-        let stats = dhat::HeapStats::get();
-        println!("Here are some details from dhat\ntotal_blocks {}\nmax bytes {}\ntotal_bytes {}\ncurr_bytes {}",
-                 stats.total_blocks,
-                 stats.max_bytes,
-                 stats.total_bytes,
-                 stats.curr_bytes
-
-        );
-        assert_eq!(number_of_items, 11);
+        assert_eq!(otlp_bytes.num_items(), 11);
     }
 }

@@ -51,7 +51,7 @@ tokio-stream = { workspace = true }
 prost = { workspace = true }
 criterion = { workspace = true }
 otel-arrow-dfe-test-net = { workspace = true }
-dhat = "0.3"
+dhat = { workspace = true }
 
 [lints]
 workspace = true
@@ -59,7 +59,6 @@ workspace = true
 [features]
 bench = []
 testing = []
-dhat-heap = []
 
 [[bench]]
 name = "concatenate"
