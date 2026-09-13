@@ -502,7 +502,6 @@ pub(crate) fn count_otlp_items(signal: SignalType, bytes: &[u8]) -> usize {
                 DataView, ExponentialHistogramView, GaugeView, HistogramView, MetricView,
                 MetricsView, ResourceMetricsView, ScopeMetricsView, SumView, SummaryView,
             };
-            // no allocations here
             let things = metrics_data_view.resources().map(
                 |r|
                 r.scopes().map(
@@ -535,7 +534,6 @@ pub(crate) fn count_otlp_items(signal: SignalType, bytes: &[u8]) -> usize {
                 .resources()
                 .map(|resource| {
                     // return 42;
-                    // allocations before this point, see impl of resources, compared to traca_data_view.resrouces() which doesn't allocate
                     resource
                         .scopes()
                         .map(|scope| {
