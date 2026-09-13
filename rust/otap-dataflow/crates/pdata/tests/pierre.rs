@@ -183,25 +183,18 @@ fn test_pierre_memory() {
     let otlp_bytes = OtlpProtoBytes::ExportMetricsRequest(Bytes::from(buf));
 
     let _profiler = dhat::Profiler::builder().testing().build();
-    // let _profiler = dhat::Profiler::new_heap();
 
     let number_of_items = otlp_bytes.num_items();
 
     let stats = dhat::HeapStats::get();
-    println!("Here are some details from dhat\ntotal_blocks {}\nmax bytes {}\ntotal_bytes {}\ncurr_bytes {}",
-             stats.total_blocks,
-             stats.max_bytes,
-             stats.total_bytes,
-             stats.curr_bytes
-
-    );
     assert_eq!(number_of_items, 11);
-    dhat::assert!(stats.total_blocks < 500);
-    dhat::assert!(stats.max_bytes < 4 * 1024 * 1024);
+    dhat::assert!(stats.total_blocks == 0);
+    dhat::assert!(stats.max_bytes == 0);
 
     // From the agent
     // .testing() enables dhat::assert!
     // drop .testing() and use Profiler::new_heap() to get dhat-heap.json to load into viewer
     // dhat::assert!(stats.total_blocks < 500);
     // dhat::assert!(stats.max_bytes < 4 * 1024 * 1024);
+    // Looks like failing assertions generate dhat-heap.json, and also print stats
 }
