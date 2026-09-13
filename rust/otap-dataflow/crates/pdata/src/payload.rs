@@ -1752,6 +1752,18 @@ mod test {
 
         let otlp_bytes = OtlpProtoBytes::ExportMetricsRequest(Bytes::from(buf));
 
-        assert_eq!(otlp_bytes.num_items(), 11);
+        let _profiler = dhat::Profiler::builder().testing().build();
+
+        let number_of_items = otlp_bytes.num_items();
+
+        let stats = dhat::HeapStats::get();
+        println!("Here are some details from dhat\ntotal_blocks {}\nmax bytes {}\ntotal_bytes {}\ncurr_bytes {}",
+                 stats.total_blocks,
+                 stats.max_bytes,
+                 stats.total_bytes,
+                 stats.curr_bytes
+
+        );
+        assert_eq!(number_of_items, 11);
     }
 }

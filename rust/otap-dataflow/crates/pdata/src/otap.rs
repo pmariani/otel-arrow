@@ -1134,6 +1134,50 @@ pub const fn parent_payload_type(payload_type: ArrowPayloadType) -> Option<Paren
     }
 }
 
+
+// #[cfg(all(test, feature = "dhat-heap"))]
+// mod pierre_test {
+//     /*
+//     use arrow::array::{
+//         ArrowPrimitiveType, DurationNanosecondArray, FixedSizeBinaryArray, Float64Array,
+//         Int64Array, RecordBatch, StringArray, StructArray, TimestampNanosecondArray, UInt8Array,
+//         UInt16Array, UInt32Array,
+//     };
+//     use arrow::datatypes::{DataType, Field, Fields, Schema, TimeUnit, UInt16Type, UInt32Type};
+//     use std::sync::Arc;
+
+//     use crate::encode::record::array::{ArrayAppend, PrimitiveArrayBuilder};
+//     use crate::encode::record::attributes::AttributesRecordBatchBuilderConstructorHelper;
+//     use crate::otlp::attributes::AttributeValueType;
+//     use crate::schema::FieldExt;
+//     use crate::{logs, metrics, record_batch, traces};
+
+
+//      */
+//     use crate::{logs, record_batch};
+//     use super::*;
+
+//     #[global_allocator]
+//     static ALLOC: dhat::Alloc = dhat::Alloc;
+
+//     #[test]
+//     fn test_pierre() {
+//         let store: Logs = logs!((Logs, ("id", UInt16, vec![1u16, 2, 3, 4])));
+//         let otap_batch: OtapArrowRecords = store.into();
+
+//         let _profiler = dhat::Profiler::builder().testing().build();
+
+//         let number_of_items = otap_batch.num_items();
+
+//         let stats = dhat::HeapStats::get();
+
+//         assert_eq!(number_of_items, 4);
+//         println!("Here are some details from dhat\ntotal_blocks {}\nmax bytes {}", stats.total_blocks, stats.max_bytes);
+//         // assert_eq!(3, 4, "just for display");
+//     }
+// }
+
+
 #[cfg(test)]
 mod test {
     use arrow::array::{
@@ -1205,6 +1249,13 @@ mod test {
             ],
         )
         .unwrap()
+    }
+
+    #[test]
+    fn test_pierre() {
+        let store: Logs = logs!((Logs, ("id", UInt16, vec![1u16, 2, 3, 4])));
+        let otap_batch: OtapArrowRecords = store.into();
+        assert_eq!(otap_batch.num_items(), 5);
     }
 
     #[test]
