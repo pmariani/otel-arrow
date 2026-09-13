@@ -1,4 +1,3 @@
-// Pierre change
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
@@ -460,11 +459,12 @@ impl OtapPayloadHelpers for OtlpProtoBytes {
     }
 }
 
+#[allow(unused_variables, unused_imports, unreachable_code)]
 /// Stateless OTLP item scan used by compatibility storage.
 pub(crate) fn count_otlp_items(signal: SignalType, bytes: &[u8]) -> usize {
     // Counting traverses the encoded protobuf record hierarchy without
     // constructing an owned request or a mutable codec instance.
-    let _ = Vec::<String>::with_capacity(1000000);
+    // let _ = Vec::<String>::with_capacity(1000000);
     match signal {
         SignalType::Logs => {
             let logs_data_view = RawLogsData::new(bytes);
@@ -502,18 +502,52 @@ pub(crate) fn count_otlp_items(signal: SignalType, bytes: &[u8]) -> usize {
                 DataView, ExponentialHistogramView, GaugeView, HistogramView, MetricView,
                 MetricsView, ResourceMetricsView, ScopeMetricsView, SumView, SummaryView,
             };
+            // no allocations here
+            let things = metrics_data_view.resources().map(
+                |r|
+                r.scopes().map(
+                    |s|
+                    s.metrics().map(
+                        |m|
+                        m.data().map(|data| {
+                            if let Some(gauge) = data.as_gauge() {
+                                gauge.data_points().count()
+                            } else if let Some(sum) = data.as_sum() {
+                                sum.data_points().count()
+                            } else if let Some(histogram) = data.as_histogram() {
+                                histogram.data_points().count()
+                            } else if let Some(histogram) =
+                                data.as_exponential_histogram()
+                            {
+                                histogram.data_points().count()
+                            } else if let Some(summary) = data.as_summary() {
+                                summary.data_points().count()
+                            } else {
+                                0
+                            }
+                        }).into_iter().count()
+                    ).count()
+                ).count()
+            );
+            // println!("LEN IS {}", things.count());
+            // return 42;
             metrics_data_view
                 .resources()
                 .map(|resource| {
+                    // return 42;
+                    // allocations before this point, see impl of resources, compared to traca_data_view.resrouces() which doesn't allocate
                     resource
                         .scopes()
                         .map(|scope| {
+                            // return 42;
                             scope
                                 .metrics()
                                 .map(|metric| {
+                                    // return 42;
                                     metric
                                         .data()
                                         .map(|data| {
+                                            // return 42;
                                             if let Some(gauge) = data.as_gauge() {
                                                 gauge.data_points().count()
                                             } else if let Some(sum) = data.as_sum() {

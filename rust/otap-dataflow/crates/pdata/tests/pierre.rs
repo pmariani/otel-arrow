@@ -1,4 +1,4 @@
-//! isolated binary to limit impact of allocator customization
+//! independent binary to isolate custom allocator from other tests
 
 use otel_arrow_dfe_pdata::otlp::OtlpProtoBytes;
 use bytes::Bytes;
@@ -187,14 +187,13 @@ fn test_pierre_memory() {
     let number_of_items = otlp_bytes.num_items();
 
     let stats = dhat::HeapStats::get();
-    assert_eq!(number_of_items, 11);
     dhat::assert!(stats.total_blocks == 0);
     dhat::assert!(stats.max_bytes == 0);
+    assert_eq!(number_of_items, 11);
 
-    // From the agent
-    // .testing() enables dhat::assert!
-    // drop .testing() and use Profiler::new_heap() to get dhat-heap.json to load into viewer
-    // dhat::assert!(stats.total_blocks < 500);
-    // dhat::assert!(stats.max_bytes < 4 * 1024 * 1024);
-    // Looks like failing assertions generate dhat-heap.json, and also print stats
+    /*
+    - all views in crates/pdata/src/views/otlp/bytes/metrics.rs
+    - metrics.rs line 203 get_field_range, line 260 GaugeFieldRange
+    - decode.rs line 177 advance_to_find_field, line 314 next
+    */
 }
