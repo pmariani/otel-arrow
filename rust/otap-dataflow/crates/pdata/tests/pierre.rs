@@ -3,24 +3,79 @@
 use otel_arrow_dfe_pdata::otlp::OtlpProtoBytes;
 use bytes::Bytes;
 use otel_arrow_dfe_pdata::proto::opentelemetry::collector::metrics::v1::ExportMetricsServiceRequest;
+use otel_arrow_dfe_pdata::proto::opentelemetry::collector::trace::v1::ExportTraceServiceRequest;
 use otel_arrow_dfe_pdata::proto::opentelemetry::common::v1::InstrumentationScope;
 use otel_arrow_dfe_pdata::proto::opentelemetry::metrics::v1::exponential_histogram_data_point::Buckets;
 use otel_arrow_dfe_pdata::proto::opentelemetry::metrics::v1::number_data_point::Value;
 use otel_arrow_dfe_pdata::proto::opentelemetry::metrics::v1::summary_data_point::ValueAtQuantile;
+use otel_arrow_dfe_pdata::proto::opentelemetry::trace::v1::{ResourceSpans, ScopeSpans, Span, Status};
 use otel_arrow_dfe_pdata::proto::opentelemetry::metrics::v1::{
     AggregationTemporality, ExponentialHistogram, ExponentialHistogramDataPoint, Gauge,
     Histogram, HistogramDataPoint, Metric, NumberDataPoint, ResourceMetrics, ScopeMetrics,
     Sum, Summary, SummaryDataPoint, metric::Data,
 };
 use otel_arrow_dfe_pdata::proto::opentelemetry::resource::v1::Resource;
+use otel_arrow_dfe_pdata::views::otlp::bytes::traces::RawTraceData;
 use prost::Message;
 use otel_arrow_dfe_pdata::OtapPayloadHelpers;
 
 #[global_allocator]
 static ALLOC: dhat::Alloc = dhat::Alloc;
 
+fn get_test_traces() -> ExportTraceServiceRequest { 
+    ExportTraceServiceRequest {
+        resource_spans: vec![
+            ResourceSpans {
+                resource: Some(Resource::default()),
+                scope_spans: vec![ScopeSpans {
+                    scope: Some(InstrumentationScope::default()),
+                    spans: vec![Span { 
+                        trace_id: [12].into(), 
+                        span_id: [12].into(), 
+                        trace_state: "test".into(), 
+                        parent_span_id: [12].into(), 
+                        flags: 12, 
+                        name: "test".into(), 
+                        kind: 12, 
+                        start_time_unix_nano: 12, 
+                        end_time_unix_nano: 12, 
+                        attributes: vec![], 
+                        dropped_attributes_count: 0, 
+                        events: vec![], 
+                        dropped_events_count: 0, 
+                        links: vec![], 
+                        dropped_links_count: 0, 
+                        status: Some(Status::default()) 
+                    },
+                    Span { 
+                        trace_id: [13].into(), 
+                        span_id: [13].into(), 
+                        trace_state: "test2".into(), 
+                        parent_span_id: [13].into(), 
+                        flags: 13, 
+                        name: "test2".into(), 
+                        kind: 13, 
+                        start_time_unix_nano: 13, 
+                        end_time_unix_nano: 13, 
+                        attributes: vec![], 
+                        dropped_attributes_count: 0, 
+                        events: vec![], 
+                        dropped_events_count: 0, 
+                        links: vec![], 
+                        dropped_links_count: 0, 
+                        status: Some(Status::default()) 
+                    }],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }
+        ]
+    }
+}
+
 #[test]
-fn test_pierre_memory() {
+#[ignore]
+fn test_pierre_memory_metrics() {
     let metrics = ExportMetricsServiceRequest {
         resource_metrics: vec![
             ResourceMetrics {
@@ -196,4 +251,25 @@ fn test_pierre_memory() {
     - metrics.rs line 203 get_field_range, line 260 GaugeFieldRange
     - decode.rs line 177 advance_to_find_field, line 314 next
     */
+}
+
+#[test]
+fn test_pierre_memory_traces() {
+
+    let traces = get_test_traces();
+
+    let mut buf = Vec::new();
+    traces.encode(&mut buf).unwrap();
+
+    let otlp_bytes = OtlpProtoBytes::ExportTracesRequest(Bytes::from(buf));
+
+    let _profiler = dhat::Profiler::builder().testing().build();
+
+    // let number_of_items = otlp_bytes.num_items();
+    let number_of_items = otlp_bytes.num_items_no_alloc();
+
+    let stats = dhat::HeapStats::get();
+    dhat::assert!(stats.total_blocks == 0);
+    dhat::assert!(stats.max_bytes == 0);
+    assert_eq!(number_of_items, 2);
 }

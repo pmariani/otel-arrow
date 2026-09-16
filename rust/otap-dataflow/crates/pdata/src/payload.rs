@@ -359,6 +359,9 @@ pub trait OtapPayloadHelpers: Into<OtapPayload> {
     /// Number of items.
     fn num_items(&self) -> usize;
 
+    /// Number of items without allocation.
+    fn num_items_no_alloc(&self) -> usize;
+
     /// Logical byte size of the current representation, if measurable.
     fn num_bytes(&self) -> Option<usize>;
 
@@ -419,6 +422,10 @@ impl OtapPayloadHelpers for OtapArrowRecords {
             Self::Metrics(records) => records.num_items(),
         }
     }
+
+    fn num_items_no_alloc(&self) -> usize {
+        self.num_items()
+    }
 }
 
 impl OtapPayloadHelpers for OtlpProtoBytes {
@@ -457,14 +464,105 @@ impl OtapPayloadHelpers for OtlpProtoBytes {
     fn num_items(&self) -> usize {
         count_otlp_items(self.signal_type(), self.as_bytes())
     }
+
+    fn num_items_no_alloc(&self) -> usize {
+        count_otlp_items_no_alloc(self.signal_type(), self.as_bytes())
+    }
+}
+
+use crate::views::otlp::bytes::decode::{read_varint, field_value_range};
+use crate::proto::consts::wire_types;
+use crate::proto::consts::field_num::traces::{TRACES_DATA_RESOURCE_SPANS, RESOURCE_SPANS_SCOPE_SPANS, SCOPE_SPANS_SPANS};
+
+fn next_field<'a>(
+    bytes: &'a [u8],
+    position: &mut usize,
+) -> Result<Option<(u64, u64, &'a [u8])>, Error> {
+    if *position == bytes.len() {
+        return Ok(None);
+    }
+
+    let (tag, after_tag) =
+        read_varint(bytes, *position).ok_or(Error::InvalidProtobufWireFormat)?;
+
+    let field_number = tag >> 3;
+    let wire_type = tag & 7;
+
+    if field_number == 0 {
+        return Err(Error::InvalidProtobufWireFormat);
+    }
+
+    // Finds the value's boundaries for every supported wire type.
+    // For LEN fields, the returned range excludes the length prefix.
+    let (start, end) =
+        field_value_range(bytes, wire_type, after_tag)
+            .ok_or(Error::InvalidProtobufWireFormat)?;
+
+    *position = end;
+
+    Ok(Some((
+        field_number,
+        wire_type,
+        &bytes[start..end],
+    )))
+}
+
+fn count_trace_spans(bytes: &[u8]) -> Result<usize, Error> {
+    let mut count: usize = 0;
+    let mut request_position = 0;
+
+    while let Some((field, wire_type, resource_bytes)) =
+        next_field(bytes, &mut request_position)?
+    {
+        if field != TRACES_DATA_RESOURCE_SPANS
+            || wire_type != wire_types::LEN
+        {
+            continue;
+        }
+
+        let mut resource_position = 0;
+
+        while let Some((field, wire_type, scope_bytes)) =
+            next_field(resource_bytes, &mut resource_position)?
+        {
+            if field != RESOURCE_SPANS_SCOPE_SPANS
+                || wire_type != wire_types::LEN
+            {
+                continue;
+            }
+
+            let mut scope_position = 0;
+
+            while let Some((field, wire_type, _span_bytes)) =
+                next_field(scope_bytes, &mut scope_position)?
+            {
+                if field == SCOPE_SPANS_SPANS
+                    && wire_type == wire_types::LEN
+                {
+                    count = count
+                        .checked_add(1)
+                        .ok_or(Error::InvalidProtobufWireFormat)?;
+                }
+            }
+        }
+    }
+
+    Ok(count)
 }
 
 #[allow(unused_variables, unused_imports, unreachable_code)]
+pub(crate) fn count_otlp_items_no_alloc(signal: SignalType, bytes: &[u8]) -> usize {
+    match signal {
+        SignalType::Logs => 42,
+        SignalType::Traces => count_trace_spans(bytes).unwrap_or(0),
+        SignalType::Metrics => 42,
+    }
+}
+
 /// Stateless OTLP item scan used by compatibility storage.
 pub(crate) fn count_otlp_items(signal: SignalType, bytes: &[u8]) -> usize {
     // Counting traverses the encoded protobuf record hierarchy without
     // constructing an owned request or a mutable codec instance.
-    // let _ = Vec::<String>::with_capacity(1000000);
     match signal {
         SignalType::Logs => {
             let logs_data_view = RawLogsData::new(bytes);
@@ -502,50 +600,18 @@ pub(crate) fn count_otlp_items(signal: SignalType, bytes: &[u8]) -> usize {
                 DataView, ExponentialHistogramView, GaugeView, HistogramView, MetricView,
                 MetricsView, ResourceMetricsView, ScopeMetricsView, SumView, SummaryView,
             };
-            let things = metrics_data_view.resources().map(
-                |r|
-                r.scopes().map(
-                    |s|
-                    s.metrics().map(
-                        |m|
-                        m.data().map(|data| {
-                            if let Some(gauge) = data.as_gauge() {
-                                gauge.data_points().count()
-                            } else if let Some(sum) = data.as_sum() {
-                                sum.data_points().count()
-                            } else if let Some(histogram) = data.as_histogram() {
-                                histogram.data_points().count()
-                            } else if let Some(histogram) =
-                                data.as_exponential_histogram()
-                            {
-                                histogram.data_points().count()
-                            } else if let Some(summary) = data.as_summary() {
-                                summary.data_points().count()
-                            } else {
-                                0
-                            }
-                        }).into_iter().count()
-                    ).count()
-                ).count()
-            );
-            // println!("LEN IS {}", things.count());
-            // return 42;
             metrics_data_view
                 .resources()
                 .map(|resource| {
-                    // return 42;
                     resource
                         .scopes()
                         .map(|scope| {
-                            // return 42;
                             scope
                                 .metrics()
                                 .map(|metric| {
-                                    // return 42;
                                     metric
                                         .data()
                                         .map(|data| {
-                                            // return 42;
                                             if let Some(gauge) = data.as_gauge() {
                                                 gauge.data_points().count()
                                             } else if let Some(sum) = data.as_sum() {
