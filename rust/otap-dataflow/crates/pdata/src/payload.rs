@@ -462,7 +462,8 @@ impl OtapPayloadHelpers for OtlpProtoBytes {
     }
 
     fn num_items(&self) -> usize {
-        count_otlp_items(self.signal_type(), self.as_bytes())
+        // count_otlp_items(self.signal_type(), self.as_bytes())
+        count_otlp_items_no_alloc(self.signal_type(), self.as_bytes())
     }
 
     fn num_items_no_alloc(&self) -> usize {
@@ -470,9 +471,11 @@ impl OtapPayloadHelpers for OtlpProtoBytes {
     }
 }
 
-use crate::views::otlp::bytes::decode::{read_varint, field_value_range};
+use crate::proto::consts::field_num::traces::{
+    RESOURCE_SPANS_SCOPE_SPANS, SCOPE_SPANS_SPANS, TRACES_DATA_RESOURCE_SPANS,
+};
 use crate::proto::consts::wire_types;
-use crate::proto::consts::field_num::traces::{TRACES_DATA_RESOURCE_SPANS, RESOURCE_SPANS_SCOPE_SPANS, SCOPE_SPANS_SPANS};
+use crate::views::otlp::bytes::decode::{field_value_range, read_varint};
 
 fn next_field<'a>(
     bytes: &'a [u8],
@@ -482,8 +485,7 @@ fn next_field<'a>(
         return Ok(None);
     }
 
-    let (tag, after_tag) =
-        read_varint(bytes, *position).ok_or(Error::InvalidProtobufWireFormat)?;
+    let (tag, after_tag) = read_varint(bytes, *position).ok_or(Error::InvalidProtobufWireFormat)?;
 
     let field_number = tag >> 3;
     let wire_type = tag & 7;
@@ -495,28 +497,19 @@ fn next_field<'a>(
     // Finds the value's boundaries for every supported wire type.
     // For LEN fields, the returned range excludes the length prefix.
     let (start, end) =
-        field_value_range(bytes, wire_type, after_tag)
-            .ok_or(Error::InvalidProtobufWireFormat)?;
+        field_value_range(bytes, wire_type, after_tag).ok_or(Error::InvalidProtobufWireFormat)?;
 
     *position = end;
 
-    Ok(Some((
-        field_number,
-        wire_type,
-        &bytes[start..end],
-    )))
+    Ok(Some((field_number, wire_type, &bytes[start..end])))
 }
 
 fn count_trace_spans(bytes: &[u8]) -> Result<usize, Error> {
     let mut count: usize = 0;
     let mut request_position = 0;
 
-    while let Some((field, wire_type, resource_bytes)) =
-        next_field(bytes, &mut request_position)?
-    {
-        if field != TRACES_DATA_RESOURCE_SPANS
-            || wire_type != wire_types::LEN
-        {
+    while let Some((field, wire_type, resource_bytes)) = next_field(bytes, &mut request_position)? {
+        if field != TRACES_DATA_RESOURCE_SPANS || wire_type != wire_types::LEN {
             continue;
         }
 
@@ -525,9 +518,7 @@ fn count_trace_spans(bytes: &[u8]) -> Result<usize, Error> {
         while let Some((field, wire_type, scope_bytes)) =
             next_field(resource_bytes, &mut resource_position)?
         {
-            if field != RESOURCE_SPANS_SCOPE_SPANS
-                || wire_type != wire_types::LEN
-            {
+            if field != RESOURCE_SPANS_SCOPE_SPANS || wire_type != wire_types::LEN {
                 continue;
             }
 
@@ -536,9 +527,7 @@ fn count_trace_spans(bytes: &[u8]) -> Result<usize, Error> {
             while let Some((field, wire_type, _span_bytes)) =
                 next_field(scope_bytes, &mut scope_position)?
             {
-                if field == SCOPE_SPANS_SPANS
-                    && wire_type == wire_types::LEN
-                {
+                if field == SCOPE_SPANS_SPANS && wire_type == wire_types::LEN {
                     count = count
                         .checked_add(1)
                         .ok_or(Error::InvalidProtobufWireFormat)?;
@@ -553,9 +542,9 @@ fn count_trace_spans(bytes: &[u8]) -> Result<usize, Error> {
 #[allow(unused_variables, unused_imports, unreachable_code)]
 pub(crate) fn count_otlp_items_no_alloc(signal: SignalType, bytes: &[u8]) -> usize {
     match signal {
-        SignalType::Logs => 42,
+        SignalType::Logs => count_otlp_items(signal, bytes),
         SignalType::Traces => count_trace_spans(bytes).unwrap_or(0),
-        SignalType::Metrics => 42,
+        SignalType::Metrics => count_otlp_items(signal, bytes),
     }
 }
 
