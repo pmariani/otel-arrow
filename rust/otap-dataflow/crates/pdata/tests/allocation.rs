@@ -31,8 +31,9 @@ use prost::Message;
 #[global_allocator]
 static ALLOC: dhat::Alloc = dhat::Alloc;
 
-fn get_test_metrics() -> ExportMetricsServiceRequest {
-    ExportMetricsServiceRequest {
+#[allow(unused)]
+fn get_test_metrics_and_num_items() -> (OtlpProtoBytes, usize)  {
+    let metrics = ExportMetricsServiceRequest {
         resource_metrics: vec![
             ResourceMetrics {
                 resource: Some(Resource::default()),
@@ -183,11 +184,17 @@ fn get_test_metrics() -> ExportMetricsServiceRequest {
                 ..Default::default()
             },
         ],
-    }
+    };
+    let mut buf = Vec::new();
+    metrics.encode(&mut buf).unwrap();
+
+    let otlp_bytes = OtlpProtoBytes::ExportMetricsRequest(Bytes::from(buf));
+    (otlp_bytes, 11)
 }
 
-fn get_test_logs() -> ExportLogsServiceRequest {
-    ExportLogsServiceRequest {
+#[allow(unused)]
+fn get_test_logs_and_num_items() -> (OtlpProtoBytes, usize) {
+    let logs = ExportLogsServiceRequest {
         resource_logs: vec![
             ResourceLogs {
                 resource: Some(Resource::default()),
@@ -215,11 +222,18 @@ fn get_test_logs() -> ExportLogsServiceRequest {
                 ..Default::default()
             },
         ],
-    }
+    };
+
+    let mut buf = Vec::new();
+    logs.encode(&mut buf).unwrap();
+
+    let otlp_bytes = OtlpProtoBytes::ExportLogsRequest(Bytes::from(buf));
+    (otlp_bytes, 5)
 }
 
-fn get_test_traces() -> ExportTraceServiceRequest {
-    ExportTraceServiceRequest {
+#[allow(unused)]
+fn get_test_traces_and_num_items() -> (OtlpProtoBytes, usize) {
+    let traces = ExportTraceServiceRequest {
         resource_spans: vec![ResourceSpans {
             resource: Some(Resource::default()),
             scope_spans: vec![ScopeSpans {
@@ -266,7 +280,12 @@ fn get_test_traces() -> ExportTraceServiceRequest {
             }],
             ..Default::default()
         }],
-    }
+    };
+    let mut buf = Vec::new();
+    traces.encode(&mut buf).unwrap();
+
+    let otlp_bytes = OtlpProtoBytes::ExportTracesRequest(Bytes::from(buf));
+    (otlp_bytes, 2)
 }
 
 #[cfg(all(test, target_os = "linux"))]
@@ -274,63 +293,24 @@ mod test_allocation {
     use super::*;
 
     #[test]
-    #[ignore]
-    fn test_metrics_num_items_should_not_allocate() {
-        let metrics = get_test_metrics();
+    fn test_signal_num_items_should_not_allocate() {
 
-        let mut buf = Vec::new();
-        metrics.encode(&mut buf).unwrap();
+        let cases: [(&str, (OtlpProtoBytes, usize)); _] = [
+            // ("Metrics", get_test_metrics_and_num_items()),
+            // ("Logs", get_test_logs_and_num_items()),
+            // ("Traces", get_test_traces_and_num_items()),
+        ];
 
-        let otlp_bytes = OtlpProtoBytes::ExportMetricsRequest(Bytes::from(buf));
+        for (signal_type, (otlp_bytes, expected_number_of_items)) in cases {
+            let _profiler = dhat::Profiler::builder().testing().build();
 
-        let _profiler = dhat::Profiler::builder().testing().build();
+            let number_of_items = otlp_bytes.num_items();
 
-        let number_of_items = otlp_bytes.num_items();
-
-        let stats = dhat::HeapStats::get();
-        dhat::assert!(stats.total_blocks == 0);
-        dhat::assert!(stats.max_bytes == 0);
-        assert_eq!(number_of_items, 11);
-    }
-
-    #[test]
-    #[ignore]
-    fn test_logs_num_items_should_not_allocate() {
-        let logs = get_test_logs();
-
-        let mut buf = Vec::new();
-        logs.encode(&mut buf).unwrap();
-
-        let otlp_bytes = OtlpProtoBytes::ExportLogsRequest(Bytes::from(buf));
-
-        let _profiler = dhat::Profiler::builder().testing().build();
-
-        let number_of_items = otlp_bytes.num_items();
-
-        let stats = dhat::HeapStats::get();
-        dhat::assert!(stats.total_blocks == 0);
-        dhat::assert!(stats.max_bytes == 0);
-        assert_eq!(number_of_items, 5);
-    }
-
-    #[test]
-    #[ignore]
-    fn test_traces_num_items_should_not_allocate() {
-        let traces = get_test_traces();
-
-        let mut buf = Vec::new();
-        traces.encode(&mut buf).unwrap();
-
-        let otlp_bytes = OtlpProtoBytes::ExportTracesRequest(Bytes::from(buf));
-
-        let _profiler = dhat::Profiler::builder().testing().build();
-
-        let number_of_items = otlp_bytes.num_items();
-
-        let stats = dhat::HeapStats::get();
-        dhat::assert!(stats.total_blocks == 0);
-        dhat::assert!(stats.max_bytes == 0);
-        assert_eq!(number_of_items, 2);
+            let stats = dhat::HeapStats::get();
+            dhat::assert!(stats.total_blocks == 0, "Unexpected allocation for {}", signal_type);
+            dhat::assert!(stats.max_bytes == 0, "Unexpected allocation for {}", signal_type);
+            assert_eq!(number_of_items, expected_number_of_items, "Unexpected num_items result for {}", signal_type);
+        }
     }
 }
 
