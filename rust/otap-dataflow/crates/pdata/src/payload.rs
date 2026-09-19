@@ -98,6 +98,12 @@ use bytes::BytesMut;
 use otel_arrow_dfe_config::{ConversionOptions, SignalFormat, SignalType};
 use prost::{EncodeError, Message};
 
+use crate::proto::consts::field_num::traces::{
+    RESOURCE_SPANS_SCOPE_SPANS, SCOPE_SPANS_SPANS, TRACES_DATA_RESOURCE_SPANS,
+};
+use crate::proto::consts::wire_types;
+use crate::views::otlp::bytes::decode::{field_value_range, read_varint};
+
 /// Concrete storage representation backing an [`OtapPayload`].
 ///
 /// This enum is public so callers can pattern-match on the representation via
@@ -359,9 +365,6 @@ pub trait OtapPayloadHelpers: Into<OtapPayload> {
     /// Number of items.
     fn num_items(&self) -> usize;
 
-    /// Number of items without allocation.
-    fn num_items_no_alloc(&self) -> usize;
-
     /// Logical byte size of the current representation, if measurable.
     fn num_bytes(&self) -> Option<usize>;
 
@@ -422,10 +425,6 @@ impl OtapPayloadHelpers for OtapArrowRecords {
             Self::Metrics(records) => records.num_items(),
         }
     }
-
-    fn num_items_no_alloc(&self) -> usize {
-        self.num_items()
-    }
 }
 
 impl OtapPayloadHelpers for OtlpProtoBytes {
@@ -462,21 +461,12 @@ impl OtapPayloadHelpers for OtlpProtoBytes {
     }
 
     fn num_items(&self) -> usize {
-        // count_otlp_items(self.signal_type(), self.as_bytes())
-        count_otlp_items_no_alloc(self.signal_type(), self.as_bytes())
-    }
-
-    fn num_items_no_alloc(&self) -> usize {
-        count_otlp_items_no_alloc(self.signal_type(), self.as_bytes())
+        count_otlp_items(self.signal_type(), self.as_bytes())
+        // count_otlp_items_no_alloc(self.signal_type(), self.as_bytes())
     }
 }
 
-use crate::proto::consts::field_num::traces::{
-    RESOURCE_SPANS_SCOPE_SPANS, SCOPE_SPANS_SPANS, TRACES_DATA_RESOURCE_SPANS,
-};
-use crate::proto::consts::wire_types;
-use crate::views::otlp::bytes::decode::{field_value_range, read_varint};
-
+#[allow(unused)]
 fn next_field<'a>(
     bytes: &'a [u8],
     position: &mut usize,
@@ -504,6 +494,7 @@ fn next_field<'a>(
     Ok(Some((field_number, wire_type, &bytes[start..end])))
 }
 
+#[allow(unused)]
 fn count_trace_spans(bytes: &[u8]) -> Result<usize, Error> {
     let mut count: usize = 0;
     let mut request_position = 0;
@@ -539,7 +530,7 @@ fn count_trace_spans(bytes: &[u8]) -> Result<usize, Error> {
     Ok(count)
 }
 
-#[allow(unused_variables, unused_imports, unreachable_code)]
+#[allow(unused, unused_variables, unused_imports, unreachable_code)]
 pub(crate) fn count_otlp_items_no_alloc(signal: SignalType, bytes: &[u8]) -> usize {
     match signal {
         SignalType::Logs => count_otlp_items(signal, bytes),
