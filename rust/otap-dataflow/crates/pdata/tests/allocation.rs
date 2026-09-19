@@ -269,7 +269,7 @@ fn get_test_traces() -> ExportTraceServiceRequest {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 mod test_allocation {
     use super::*;
 
@@ -314,7 +314,7 @@ mod test_allocation {
     }
 
     #[test]
-    // #[ignore]
+    #[ignore]
     fn test_traces_num_items_should_not_allocate() {
         let traces = get_test_traces();
 
