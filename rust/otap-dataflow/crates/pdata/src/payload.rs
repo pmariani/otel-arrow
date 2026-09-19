@@ -98,6 +98,9 @@ use bytes::BytesMut;
 use otel_arrow_dfe_config::{ConversionOptions, SignalFormat, SignalType};
 use prost::{EncodeError, Message};
 
+use crate::proto::consts::field_num::logs::{
+    LOGS_DATA_RESOURCE, RESOURCE_LOGS_SCOPE_LOGS, SCOPE_LOGS_LOG_RECORDS,
+};
 use crate::proto::consts::field_num::traces::{
     RESOURCE_SPANS_SCOPE_SPANS, SCOPE_SPANS_SPANS, TRACES_DATA_RESOURCE_SPANS,
 };
@@ -461,12 +464,10 @@ impl OtapPayloadHelpers for OtlpProtoBytes {
     }
 
     fn num_items(&self) -> usize {
-        count_otlp_items(self.signal_type(), self.as_bytes())
-        // count_otlp_items_no_alloc(self.signal_type(), self.as_bytes())
+        count_otlp_items_no_alloc(self.signal_type(), self.as_bytes())
     }
 }
 
-#[allow(unused)]
 fn next_field<'a>(
     bytes: &'a [u8],
     position: &mut usize,
@@ -494,7 +495,41 @@ fn next_field<'a>(
     Ok(Some((field_number, wire_type, &bytes[start..end])))
 }
 
-#[allow(unused)]
+fn count_log_records(bytes: &[u8]) -> Result<usize, Error> {
+    let mut count: usize = 0;
+    let mut request_position = 0;
+
+    while let Some((field, wire_type, resource_bytes)) = next_field(bytes, &mut request_position)? {
+        if field != LOGS_DATA_RESOURCE || wire_type != wire_types::LEN {
+            continue;
+        }
+
+        let mut resource_position = 0;
+
+        while let Some((field, wire_type, scope_bytes)) =
+            next_field(resource_bytes, &mut resource_position)?
+        {
+            if field != RESOURCE_LOGS_SCOPE_LOGS || wire_type != wire_types::LEN {
+                continue;
+            }
+
+            let mut scope_position = 0;
+
+            while let Some((field, wire_type, _log_record_bytes)) =
+                next_field(scope_bytes, &mut scope_position)?
+            {
+                if field == SCOPE_LOGS_LOG_RECORDS && wire_type == wire_types::LEN {
+                    count = count
+                        .checked_add(1)
+                        .ok_or(Error::InvalidProtobufWireFormat)?;
+                }
+            }
+        }
+    }
+
+    Ok(count)
+}
+
 fn count_trace_spans(bytes: &[u8]) -> Result<usize, Error> {
     let mut count: usize = 0;
     let mut request_position = 0;
@@ -530,10 +565,9 @@ fn count_trace_spans(bytes: &[u8]) -> Result<usize, Error> {
     Ok(count)
 }
 
-#[allow(unused, unused_variables, unused_imports, unreachable_code)]
 pub(crate) fn count_otlp_items_no_alloc(signal: SignalType, bytes: &[u8]) -> usize {
     match signal {
-        SignalType::Logs => count_otlp_items(signal, bytes),
+        SignalType::Logs => count_log_records(bytes).unwrap_or(0),
         SignalType::Traces => count_trace_spans(bytes).unwrap_or(0),
         SignalType::Metrics => count_otlp_items(signal, bytes),
     }

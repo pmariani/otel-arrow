@@ -147,6 +147,7 @@ impl OtlpProtoMessage {
     }
 }
 
+// CHECK IF THOSE 3 are executed by tests
 fn logs_num_items(logs: &opentelemetry::logs::v1::LogsData) -> usize {
     logs.resource_logs
         .iter()

@@ -1,11 +1,15 @@
-//! independent binary to isolate custom allocator from other tests
+//! This file implements allocation tests which require a customized allocator. The
+//! allocator is set for the whole binary. By defining this file as standalone in the
+//! tests/ directory, it makes it an independent binary.
 
 use bytes::Bytes;
 use otel_arrow_dfe_pdata::OtapPayloadHelpers;
 use otel_arrow_dfe_pdata::otlp::OtlpProtoBytes;
+use otel_arrow_dfe_pdata::proto::opentelemetry::collector::logs::v1::ExportLogsServiceRequest;
 use otel_arrow_dfe_pdata::proto::opentelemetry::collector::metrics::v1::ExportMetricsServiceRequest;
 use otel_arrow_dfe_pdata::proto::opentelemetry::collector::trace::v1::ExportTraceServiceRequest;
 use otel_arrow_dfe_pdata::proto::opentelemetry::common::v1::InstrumentationScope;
+use otel_arrow_dfe_pdata::proto::opentelemetry::logs::v1::{LogRecord, ResourceLogs, ScopeLogs};
 use otel_arrow_dfe_pdata::proto::opentelemetry::metrics::v1::exponential_histogram_data_point::Buckets;
 use otel_arrow_dfe_pdata::proto::opentelemetry::metrics::v1::number_data_point::Value;
 use otel_arrow_dfe_pdata::proto::opentelemetry::metrics::v1::summary_data_point::ValueAtQuantile;
@@ -19,68 +23,13 @@ use otel_arrow_dfe_pdata::proto::opentelemetry::trace::v1::{
     ResourceSpans, ScopeSpans, Span, Status,
 };
 
-#[allow(unused)]
-use otel_arrow_dfe_pdata::views::otlp::bytes::traces::RawTraceData;
 use prost::Message;
 
 #[global_allocator]
 static ALLOC: dhat::Alloc = dhat::Alloc;
 
-fn get_test_traces() -> ExportTraceServiceRequest {
-    ExportTraceServiceRequest {
-        resource_spans: vec![ResourceSpans {
-            resource: Some(Resource::default()),
-            scope_spans: vec![ScopeSpans {
-                scope: Some(InstrumentationScope::default()),
-                spans: vec![
-                    Span {
-                        trace_id: [12].into(),
-                        span_id: [12].into(),
-                        trace_state: "test".into(),
-                        parent_span_id: [12].into(),
-                        flags: 12,
-                        name: "test".into(),
-                        kind: 12,
-                        start_time_unix_nano: 12,
-                        end_time_unix_nano: 12,
-                        attributes: vec![],
-                        dropped_attributes_count: 0,
-                        events: vec![],
-                        dropped_events_count: 0,
-                        links: vec![],
-                        dropped_links_count: 0,
-                        status: Some(Status::default()),
-                    },
-                    Span {
-                        trace_id: [13].into(),
-                        span_id: [13].into(),
-                        trace_state: "test2".into(),
-                        parent_span_id: [13].into(),
-                        flags: 13,
-                        name: "test2".into(),
-                        kind: 13,
-                        start_time_unix_nano: 13,
-                        end_time_unix_nano: 13,
-                        attributes: vec![],
-                        dropped_attributes_count: 0,
-                        events: vec![],
-                        dropped_events_count: 0,
-                        links: vec![],
-                        dropped_links_count: 0,
-                        status: Some(Status::default()),
-                    },
-                ],
-                ..Default::default()
-            }],
-            ..Default::default()
-        }],
-    }
-}
-
-#[test]
-#[ignore]
-fn test_pierre_memory_metrics() {
-    let metrics = ExportMetricsServiceRequest {
+fn get_test_metrics() -> ExportMetricsServiceRequest {
+    ExportMetricsServiceRequest {
         resource_metrics: vec![
             ResourceMetrics {
                 resource: Some(Resource::default()),
@@ -231,45 +180,155 @@ fn test_pierre_memory_metrics() {
                 ..Default::default()
             },
         ],
-    };
-
-    let mut buf = Vec::new();
-    metrics.encode(&mut buf).unwrap();
-
-    let otlp_bytes = OtlpProtoBytes::ExportMetricsRequest(Bytes::from(buf));
-
-    let _profiler = dhat::Profiler::builder().testing().build();
-
-    let number_of_items = otlp_bytes.num_items();
-
-    let stats = dhat::HeapStats::get();
-    dhat::assert!(stats.total_blocks == 0);
-    dhat::assert!(stats.max_bytes == 0);
-    assert_eq!(number_of_items, 11);
-
-    /*
-    - all views in crates/pdata/src/views/otlp/bytes/metrics.rs
-    - metrics.rs line 203 get_field_range, line 260 GaugeFieldRange
-    - decode.rs line 177 advance_to_find_field, line 314 next
-    */
+    }
 }
 
-#[test]
-fn test_pierre_memory_traces() {
-    let traces = get_test_traces();
-
-    let mut buf = Vec::new();
-    traces.encode(&mut buf).unwrap();
-
-    let otlp_bytes = OtlpProtoBytes::ExportTracesRequest(Bytes::from(buf));
-
-    let _profiler = dhat::Profiler::builder().testing().build();
-
-    // let number_of_items = otlp_bytes.num_items();
-    let number_of_items = otlp_bytes.num_items_no_alloc();
-
-    let stats = dhat::HeapStats::get();
-    dhat::assert!(stats.total_blocks == 0);
-    dhat::assert!(stats.max_bytes == 0);
-    assert_eq!(number_of_items, 2);
+fn get_test_logs() -> ExportLogsServiceRequest {
+    ExportLogsServiceRequest {
+        resource_logs: vec![
+            ResourceLogs {
+                resource: Some(Resource::default()),
+                scope_logs: vec![ScopeLogs {
+                    scope: Some(InstrumentationScope::default()),
+                    log_records: vec![LogRecord::default(), LogRecord::default()],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+            ResourceLogs {
+                resource: Some(Resource::default()),
+                scope_logs: vec![
+                    ScopeLogs {
+                        scope: Some(InstrumentationScope::default()),
+                        log_records: vec![LogRecord::default()],
+                        ..Default::default()
+                    },
+                    ScopeLogs {
+                        scope: Some(InstrumentationScope::default()),
+                        log_records: vec![LogRecord::default(), LogRecord::default()],
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            },
+        ],
+    }
 }
+
+fn get_test_traces() -> ExportTraceServiceRequest {
+    ExportTraceServiceRequest {
+        resource_spans: vec![ResourceSpans {
+            resource: Some(Resource::default()),
+            scope_spans: vec![ScopeSpans {
+                scope: Some(InstrumentationScope::default()),
+                spans: vec![
+                    Span {
+                        trace_id: [12].into(),
+                        span_id: [12].into(),
+                        trace_state: "test".into(),
+                        parent_span_id: [12].into(),
+                        flags: 12,
+                        name: "test".into(),
+                        kind: 12,
+                        start_time_unix_nano: 12,
+                        end_time_unix_nano: 12,
+                        attributes: vec![],
+                        dropped_attributes_count: 0,
+                        events: vec![],
+                        dropped_events_count: 0,
+                        links: vec![],
+                        dropped_links_count: 0,
+                        status: Some(Status::default()),
+                    },
+                    Span {
+                        trace_id: [13].into(),
+                        span_id: [13].into(),
+                        trace_state: "test2".into(),
+                        parent_span_id: [13].into(),
+                        flags: 13,
+                        name: "test2".into(),
+                        kind: 13,
+                        start_time_unix_nano: 13,
+                        end_time_unix_nano: 13,
+                        attributes: vec![],
+                        dropped_attributes_count: 0,
+                        events: vec![],
+                        dropped_events_count: 0,
+                        links: vec![],
+                        dropped_links_count: 0,
+                        status: Some(Status::default()),
+                    },
+                ],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }],
+    }
+}
+
+#[cfg(test)]
+mod test_allocation {
+    use super::*;
+
+    #[test]
+    #[ignore]
+    fn test_metrics_num_items_should_not_allocate() {
+        let metrics = get_test_metrics();
+
+        let mut buf = Vec::new();
+        metrics.encode(&mut buf).unwrap();
+
+        let otlp_bytes = OtlpProtoBytes::ExportMetricsRequest(Bytes::from(buf));
+
+        let _profiler = dhat::Profiler::builder().testing().build();
+
+        let number_of_items = otlp_bytes.num_items();
+
+        let stats = dhat::HeapStats::get();
+        dhat::assert!(stats.total_blocks == 0);
+        dhat::assert!(stats.max_bytes == 0);
+        assert_eq!(number_of_items, 11);
+    }
+
+    #[test]
+    #[ignore]
+    fn test_logs_num_items_should_not_allocate() {
+        let logs = get_test_logs();
+
+        let mut buf = Vec::new();
+        logs.encode(&mut buf).unwrap();
+
+        let otlp_bytes = OtlpProtoBytes::ExportLogsRequest(Bytes::from(buf));
+
+        let _profiler = dhat::Profiler::builder().testing().build();
+
+        let number_of_items = otlp_bytes.num_items();
+
+        let stats = dhat::HeapStats::get();
+        dhat::assert!(stats.total_blocks == 0);
+        dhat::assert!(stats.max_bytes == 0);
+        assert_eq!(number_of_items, 5);
+    }
+
+    #[test]
+    // #[ignore]
+    fn test_traces_num_items_should_not_allocate() {
+        let traces = get_test_traces();
+
+        let mut buf = Vec::new();
+        traces.encode(&mut buf).unwrap();
+
+        let otlp_bytes = OtlpProtoBytes::ExportTracesRequest(Bytes::from(buf));
+
+        let _profiler = dhat::Profiler::builder().testing().build();
+
+        let number_of_items = otlp_bytes.num_items();
+
+        let stats = dhat::HeapStats::get();
+        dhat::assert!(stats.total_blocks == 0);
+        dhat::assert!(stats.max_bytes == 0);
+        assert_eq!(number_of_items, 2);
+    }
+    
+}
+
