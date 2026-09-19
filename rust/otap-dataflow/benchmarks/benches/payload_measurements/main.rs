@@ -374,12 +374,50 @@ fn direct_codec_paths(c: &mut Criterion) {
     group.finish();
 }
 
+fn pierre_count(c: &mut Criterion) {
+    let mut group = c.benchmark_group("PIERRE");
+
+    for record_count in [10, 100, 1_000] {
+        let message = OtlpProtoMessage::Logs(create_logs_data(record_count));
+        let otlp_bytes: OtlpProtoBytes = otlp_message_to_bytes(&message);
+
+            let fresh_payload = || -> OtapPayload {
+                otlp_bytes.clone().into()
+            };
+
+            _ = group.bench_function(
+                BenchmarkId::new("OTLP/count/uncached", record_count),
+                |b| {
+                    b.iter_batched_ref(
+                        || OtapPdata::new(Context::default(), black_box(fresh_payload())),
+                        |pdata| black_box(pdata.num_items()),
+                        BatchSize::SmallInput,
+                    )
+                },
+            );
+
+            let mut cached = OtapPdata::new(Context::default(), fresh_payload());
+            _ = black_box(cached.num_items());
+
+            _ = group.bench_function(
+                BenchmarkId::new("OTLP/count/cached", record_count),
+                |b| {
+                    b.iter(|| black_box(cached.num_items()))
+                },
+            );
+    }
+
+    group.finish();
+}
+
+
 criterion_group!(
     payload_measurements,
     count_logs,
     count_payload_items,
     measure_payload_size,
     legacy_representation_paths,
-    direct_codec_paths
+    direct_codec_paths,
+    pierre_count
 );
 criterion_main!(payload_measurements);
