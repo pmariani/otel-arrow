@@ -1,3 +1,6 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
 //! This file implements allocation tests which require a customized allocator. The
 //! allocator is set for the whole binary. By defining this file as standalone in the
 //! tests/ directory, it makes it an independent binary.
@@ -329,6 +332,5 @@ mod test_allocation {
         dhat::assert!(stats.max_bytes == 0);
         assert_eq!(number_of_items, 2);
     }
-    
 }
 

@@ -471,8 +471,8 @@ fn direct_codec_paths(c: &mut Criterion) {
     group.finish();
 }
 
-fn pierre_count(c: &mut Criterion) {
-    let mut group = c.benchmark_group("PIERRE");
+fn otlp_logs_metrics_traces_count_payload_items(c: &mut Criterion) {
+    let mut group = c.benchmark_group("PData OTLP num_items overhead");
 
     for record_count in [10, 100, 1_000] {
         let log_message = OtlpProtoMessage::Logs(create_logs_data(record_count));
@@ -489,7 +489,7 @@ fn pierre_count(c: &mut Criterion) {
             let fresh_payload = || -> OtapPayload { otlp_bytes.clone().into() };
 
             _ = group.bench_function(
-                BenchmarkId::new(format!("OTLP/{spec_name}/num_items/uncached"), record_count),
+                BenchmarkId::new(format!("{spec_name}/uncached"), record_count),
                 |b| {
                     b.iter_batched_ref(
                         || OtapPdata::new(Context::default(), black_box(fresh_payload())),
@@ -503,7 +503,7 @@ fn pierre_count(c: &mut Criterion) {
             _ = black_box(cached.num_items());
 
             _ = group.bench_function(
-                BenchmarkId::new(format!("OTLP/{spec_name}/num_items/cached"), record_count),
+                BenchmarkId::new(format!("{spec_name}/cached"), record_count),
                 |b| b.iter(|| black_box(cached.num_items())),
             );
         }
@@ -519,6 +519,6 @@ criterion_group!(
     measure_payload_size,
     legacy_representation_paths,
     direct_codec_paths,
-    pierre_count
+    otlp_logs_metrics_traces_count_payload_items
 );
 criterion_main!(payload_measurements);
