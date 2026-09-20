@@ -474,31 +474,13 @@ impl OtapPayloadHelpers for OtlpProtoBytes {
     }
 }
 
-fn next_field<'a>(
-    bytes: &'a [u8],
-    position: &mut usize,
-) -> Result<Option<(u64, u64, &'a [u8])>, Error> {
-    if *position == bytes.len() {
-        return Ok(None);
+/// Single-pass allocation free parsing of OTLP items bytes to count items.
+pub(crate) fn count_otlp_items(signal: SignalType, bytes: &[u8]) -> usize {
+    match signal {
+        SignalType::Logs => count_logs_records(bytes).unwrap_or(0),
+        SignalType::Traces => count_trace_spans(bytes).unwrap_or(0),
+        SignalType::Metrics => count_metrics_data_points(bytes).unwrap_or(0),
     }
-
-    let (tag, after_tag) = read_varint(bytes, *position).ok_or(Error::InvalidProtobufWireFormat)?;
-
-    let field_number = tag >> 3;
-    let wire_type = tag & 7;
-
-    if field_number == 0 {
-        return Err(Error::InvalidProtobufWireFormat);
-    }
-
-    // Finds the value's boundaries for every supported wire type.
-    // For LEN fields, the returned range excludes the length prefix.
-    let (start, end) =
-        field_value_range(bytes, wire_type, after_tag).ok_or(Error::InvalidProtobufWireFormat)?;
-
-    *position = end;
-
-    Ok(Some((field_number, wire_type, &bytes[start..end])))
 }
 
 fn count_logs_records(bytes: &[u8]) -> Result<usize, Error> {
@@ -634,12 +616,31 @@ fn count_metrics_data_points(bytes: &[u8]) -> Result<usize, Error> {
     Ok(count)
 }
 
-fn count_otlp_items(signal: SignalType, bytes: &[u8]) -> usize {
-    match signal {
-        SignalType::Logs => count_logs_records(bytes).unwrap_or(0),
-        SignalType::Traces => count_trace_spans(bytes).unwrap_or(0),
-        SignalType::Metrics => count_metrics_data_points(bytes).unwrap_or(0),
+fn next_field<'a>(
+    bytes: &'a [u8],
+    position: &mut usize,
+) -> Result<Option<(u64, u64, &'a [u8])>, Error> {
+    if *position == bytes.len() {
+        return Ok(None);
     }
+
+    let (tag, after_tag) = read_varint(bytes, *position).ok_or(Error::InvalidProtobufWireFormat)?;
+
+    let field_number = tag >> 3;
+    let wire_type = tag & 7;
+
+    if field_number == 0 {
+        return Err(Error::InvalidProtobufWireFormat);
+    }
+
+    // Finds the value's boundaries for every supported wire type.
+    // For LEN fields, the returned range excludes the length prefix.
+    let (start, end) =
+        field_value_range(bytes, wire_type, after_tag).ok_or(Error::InvalidProtobufWireFormat)?;
+
+    *position = end;
+
+    Ok(Some((field_number, wire_type, &bytes[start..end])))
 }
 
 /* -------- Conversion implementations -------- */
