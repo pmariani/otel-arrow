@@ -186,7 +186,7 @@ fn get_test_metrics_and_num_items() -> (OtlpProtoBytes, usize) {
         ],
     };
     let mut buf = Vec::new();
-    metrics.encode(&mut buf).unwrap();
+    metrics.encode(&mut buf).expect("Unable to encode metrics");
 
     let otlp_bytes = OtlpProtoBytes::ExportMetricsRequest(Bytes::from(buf));
     (otlp_bytes, 11)
@@ -225,7 +225,7 @@ fn get_test_logs_and_num_items() -> (OtlpProtoBytes, usize) {
     };
 
     let mut buf = Vec::new();
-    logs.encode(&mut buf).unwrap();
+    logs.encode(&mut buf).expect("Unable to encode logs");
 
     let otlp_bytes = OtlpProtoBytes::ExportLogsRequest(Bytes::from(buf));
     (otlp_bytes, 5)
@@ -282,7 +282,7 @@ fn get_test_traces_and_num_items() -> (OtlpProtoBytes, usize) {
         }],
     };
     let mut buf = Vec::new();
-    traces.encode(&mut buf).unwrap();
+    traces.encode(&mut buf).expect("Unable to encode traces");
 
     let otlp_bytes = OtlpProtoBytes::ExportTracesRequest(Bytes::from(buf));
     (otlp_bytes, 2)
@@ -294,7 +294,6 @@ mod test_allocation {
 
     #[test]
     fn test_signal_num_items_should_not_allocate() {
-
         let cases: [(&str, (OtlpProtoBytes, usize)); _] = [
             ("Logs", get_test_logs_and_num_items()),
             ("Traces", get_test_traces_and_num_items()),
@@ -308,22 +307,20 @@ mod test_allocation {
 
             let stats = dhat::HeapStats::get();
             dhat::assert!(
-                stats.total_blocks == 0, 
-                "Unexpected allocation for {}", 
+                stats.total_blocks == 0,
+                "Unexpected allocation for {}",
                 signal_type
             );
             dhat::assert!(
-                stats.max_bytes == 0, 
-                "Unexpected allocation for {}", 
+                stats.max_bytes == 0,
+                "Unexpected allocation for {}",
                 signal_type
             );
             assert_eq!(
-                number_of_items, 
-                expected_number_of_items, 
-                "Unexpected num_items result for {}", 
+                number_of_items, expected_number_of_items,
+                "Unexpected num_items result for {}",
                 signal_type
             );
         }
     }
 }
-
