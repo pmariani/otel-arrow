@@ -296,9 +296,9 @@ mod test_allocation {
     fn test_signal_num_items_should_not_allocate() {
 
         let cases: [(&str, (OtlpProtoBytes, usize)); _] = [
-            // ("Metrics", get_test_metrics_and_num_items()),
-            // ("Logs", get_test_logs_and_num_items()),
-            // ("Traces", get_test_traces_and_num_items()),
+            ("Logs", get_test_logs_and_num_items()),
+            ("Traces", get_test_traces_and_num_items()),
+            ("Metrics", get_test_metrics_and_num_items()),
         ];
 
         for (signal_type, (otlp_bytes, expected_number_of_items)) in cases {

@@ -104,6 +104,12 @@ use crate::proto::consts::field_num::logs::{
 use crate::proto::consts::field_num::traces::{
     RESOURCE_SPANS_SCOPE_SPANS, SCOPE_SPANS_SPANS, TRACES_DATA_RESOURCE_SPANS,
 };
+use crate::proto::consts::field_num::metrics::{
+    METRICS_DATA_RESOURCE_METRICS, RESOURCE_METRICS_SCOPE_METRICS, SCOPE_METRICS_METRICS,
+    METRIC_GAUGE, METRIC_SUM, METRIC_HISTOGRAM, METRIC_EXPONENTIAL_HISTOGRAM, METRIC_SUMMARY,
+    GAUGE_DATA_POINTS, SUM_DATA_POINTS, HISTOGRAM_DATA_POINTS, EXPONENTIAL_HISTOGRAM_DATA_POINTS,
+    SUMMARY_DATA_POINTS
+};
 use crate::proto::consts::wire_types;
 use crate::views::otlp::bytes::decode::{field_value_range, read_varint};
 
@@ -464,7 +470,7 @@ impl OtapPayloadHelpers for OtlpProtoBytes {
     }
 
     fn num_items(&self) -> usize {
-        count_otlp_items_no_alloc(self.signal_type(), self.as_bytes())
+        count_otlp_items(self.signal_type(), self.as_bytes())
     }
 }
 
@@ -495,7 +501,7 @@ fn next_field<'a>(
     Ok(Some((field_number, wire_type, &bytes[start..end])))
 }
 
-fn count_log_records(bytes: &[u8]) -> Result<usize, Error> {
+fn count_logs_records(bytes: &[u8]) -> Result<usize, Error> {
     let mut count: usize = 0;
     let mut request_position = 0;
 
@@ -519,9 +525,7 @@ fn count_log_records(bytes: &[u8]) -> Result<usize, Error> {
                 next_field(scope_bytes, &mut scope_position)?
             {
                 if field == SCOPE_LOGS_LOG_RECORDS && wire_type == wire_types::LEN {
-                    count = count
-                        .checked_add(1)
-                        .ok_or(Error::InvalidProtobufWireFormat)?;
+                    count += 1;
                 }
             }
         }
@@ -554,9 +558,7 @@ fn count_trace_spans(bytes: &[u8]) -> Result<usize, Error> {
                 next_field(scope_bytes, &mut scope_position)?
             {
                 if field == SCOPE_SPANS_SPANS && wire_type == wire_types::LEN {
-                    count = count
-                        .checked_add(1)
-                        .ok_or(Error::InvalidProtobufWireFormat)?;
+                    count += 1;
                 }
             }
         }
@@ -565,91 +567,78 @@ fn count_trace_spans(bytes: &[u8]) -> Result<usize, Error> {
     Ok(count)
 }
 
-pub(crate) fn count_otlp_items_no_alloc(signal: SignalType, bytes: &[u8]) -> usize {
-    match signal {
-        SignalType::Logs => count_log_records(bytes).unwrap_or(0),
-        SignalType::Traces => count_trace_spans(bytes).unwrap_or(0),
-        SignalType::Metrics => count_otlp_items(signal, bytes),
+fn count_metrics_data_points(bytes: &[u8]) -> Result<usize, Error> {
+    let mut count: usize = 0;
+    let mut request_position = 0;
+    let metric_fields = [
+        METRIC_GAUGE,
+        METRIC_SUM,
+        METRIC_HISTOGRAM,
+        METRIC_EXPONENTIAL_HISTOGRAM,
+        METRIC_SUMMARY,
+    ];
+    let data_points_fields = [
+        GAUGE_DATA_POINTS,
+        SUM_DATA_POINTS,
+        HISTOGRAM_DATA_POINTS,
+        EXPONENTIAL_HISTOGRAM_DATA_POINTS,
+        SUMMARY_DATA_POINTS
+    ];
+
+    while let Some((field, wire_type, resource_bytes)) = next_field(bytes, &mut request_position)? {
+        if field != METRICS_DATA_RESOURCE_METRICS || wire_type != wire_types::LEN {
+            continue;
+        }
+
+        let mut resource_position = 0;
+
+        while let Some((field, wire_type, scope_bytes)) =
+            next_field(resource_bytes, &mut resource_position)?
+        {
+            if field != RESOURCE_METRICS_SCOPE_METRICS || wire_type != wire_types::LEN {
+                continue;
+            }
+
+            let mut metrics_position = 0;
+
+            while let Some((field, wire_type, metrics_bytes)) =
+                next_field(scope_bytes, &mut metrics_position)?
+            {
+                if field != SCOPE_METRICS_METRICS || wire_type != wire_types::LEN {
+                    continue;
+                }
+
+                let mut data_position = 0;
+
+                while let Some((field, wire_type, data_bytes)) =
+                    next_field(metrics_bytes, &mut data_position)?
+                {
+                    if !metric_fields.contains(&field) || wire_type != wire_types::LEN {
+                        continue;
+                    }
+
+                    let mut data_point_position = 0;
+
+                    while let Some((field, wire_type, _data_point_bytes)) =
+                        next_field(data_bytes, &mut data_point_position)?
+                    {
+                        if data_points_fields.contains(&field) && wire_type == wire_types::LEN {
+                            count += 1;
+                        }
+                    }
+                }
+            }
+        }
     }
+
+    Ok(count)
 }
 
-/// Stateless OTLP item scan used by compatibility storage.
-pub(crate) fn count_otlp_items(signal: SignalType, bytes: &[u8]) -> usize {
-    // Counting traverses the encoded protobuf record hierarchy without
-    // constructing an owned request or a mutable codec instance.
+fn count_otlp_items(signal: SignalType, bytes: &[u8]) -> usize {
     match signal {
-        SignalType::Logs => {
-            let logs_data_view = RawLogsData::new(bytes);
-            use otel_arrow_dfe_pdata_views::views::logs::{
-                LogsDataView, ResourceLogsView, ScopeLogsView,
-            };
-            logs_data_view
-                .resources()
-                .map(|resource| {
-                    resource
-                        .scopes()
-                        .map(|scope| scope.log_records().count())
-                        .sum::<usize>()
-                })
-                .sum()
-        }
-        SignalType::Traces => {
-            let traces_data_view = RawTraceData::new(bytes);
-            use otel_arrow_dfe_pdata_views::views::trace::{
-                ResourceSpansView, ScopeSpansView, TracesView,
-            };
-            traces_data_view
-                .resources()
-                .map(|resource| {
-                    resource
-                        .scopes()
-                        .map(|scope| scope.spans().count())
-                        .sum::<usize>()
-                })
-                .sum()
-        }
-        SignalType::Metrics => {
-            let metrics_data_view = RawMetricsData::new(bytes);
-            use otel_arrow_dfe_pdata_views::views::metrics::{
-                DataView, ExponentialHistogramView, GaugeView, HistogramView, MetricView,
-                MetricsView, ResourceMetricsView, ScopeMetricsView, SumView, SummaryView,
-            };
-            metrics_data_view
-                .resources()
-                .map(|resource| {
-                    resource
-                        .scopes()
-                        .map(|scope| {
-                            scope
-                                .metrics()
-                                .map(|metric| {
-                                    metric
-                                        .data()
-                                        .map(|data| {
-                                            if let Some(gauge) = data.as_gauge() {
-                                                gauge.data_points().count()
-                                            } else if let Some(sum) = data.as_sum() {
-                                                sum.data_points().count()
-                                            } else if let Some(histogram) = data.as_histogram() {
-                                                histogram.data_points().count()
-                                            } else if let Some(histogram) =
-                                                data.as_exponential_histogram()
-                                            {
-                                                histogram.data_points().count()
-                                            } else if let Some(summary) = data.as_summary() {
-                                                summary.data_points().count()
-                                            } else {
-                                                0
-                                            }
-                                        })
-                                        .unwrap_or(0)
-                                })
-                                .sum::<usize>()
-                        })
-                        .sum::<usize>()
-                })
-                .sum()
-        }
+        SignalType::Logs => count_logs_records(bytes).unwrap_or(0),
+        SignalType::Traces => count_trace_spans(bytes).unwrap_or(0),
+        SignalType::Metrics => count_metrics_data_points(bytes).unwrap_or(0),
     }
 }
 
