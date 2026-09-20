@@ -564,7 +564,7 @@ fn count_metrics_data_points(bytes: &[u8]) -> Result<usize, Error> {
         SUM_DATA_POINTS,
         HISTOGRAM_DATA_POINTS,
         EXPONENTIAL_HISTOGRAM_DATA_POINTS,
-        SUMMARY_DATA_POINTS
+        SUMMARY_DATA_POINTS,
     ];
 
     while let Some((field, wire_type, resource_bytes)) = next_field(bytes, &mut request_position)? {

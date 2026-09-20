@@ -32,7 +32,7 @@ use prost::Message;
 static ALLOC: dhat::Alloc = dhat::Alloc;
 
 #[allow(unused)]
-fn get_test_metrics_and_num_items() -> (OtlpProtoBytes, usize)  {
+fn get_test_metrics_and_num_items() -> (OtlpProtoBytes, usize) {
     let metrics = ExportMetricsServiceRequest {
         resource_metrics: vec![
             ResourceMetrics {
@@ -307,9 +307,22 @@ mod test_allocation {
             let number_of_items = otlp_bytes.num_items();
 
             let stats = dhat::HeapStats::get();
-            dhat::assert!(stats.total_blocks == 0, "Unexpected allocation for {}", signal_type);
-            dhat::assert!(stats.max_bytes == 0, "Unexpected allocation for {}", signal_type);
-            assert_eq!(number_of_items, expected_number_of_items, "Unexpected num_items result for {}", signal_type);
+            dhat::assert!(
+                stats.total_blocks == 0, 
+                "Unexpected allocation for {}", 
+                signal_type
+            );
+            dhat::assert!(
+                stats.max_bytes == 0, 
+                "Unexpected allocation for {}", 
+                signal_type
+            );
+            assert_eq!(
+                number_of_items, 
+                expected_number_of_items, 
+                "Unexpected num_items result for {}", 
+                signal_type
+            );
         }
     }
 }
