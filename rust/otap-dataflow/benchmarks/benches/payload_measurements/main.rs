@@ -54,8 +54,8 @@ fn create_logs_data(record_count: usize) -> LogsData {
     LogsData::new(vec![ResourceLogs::new(resource, vec![scope_logs])])
 }
 
-fn create_metrics_data(record_count: usize) -> MetricsData {
-    let kvs = vec![
+fn create_metrics_data(record_count: usize, deep_or_shallow: bool) -> MetricsData {
+    let kvs: Vec<KeyValue> = vec![
         KeyValue::new("k1", AnyValue::new_string("v1")),
         KeyValue::new("k2", AnyValue::new_string("v2")),
     ];
@@ -66,61 +66,45 @@ fn create_metrics_data(record_count: usize) -> MetricsData {
         .attributes(kvs.clone())
         .value_int(1i64)
         .finish();
-    let histogram_data_point = HistogramDataPoint::build()
-        .time_unix_nano(2_000_000_000u64)
-        .attributes(kvs.clone())
-        .count(1u64)
-        .sum(1.0)
-        .bucket_counts(vec![0, 1])
-        .explicit_bounds(vec![0.5])
-        .finish();
-    let exponential_histogram_data_point = ExponentialHistogramDataPoint::build()
-        .time_unix_nano(2_000_000_000u64)
-        .attributes(kvs.clone())
-        .count(1u64)
-        .sum(1.0)
-        .scale(0)
-        .positive(exponential_histogram_data_point::Buckets::new(0, vec![1]))
-        .finish();
-    let summary_data_point = SummaryDataPoint::build()
-        .time_unix_nano(2_000_000_000u64)
-        .attributes(kvs)
-        .count(1u64)
-        .sum(1.0)
-        .quantile_values(vec![summary_data_point::ValueAtQuantile::new(0.5, 1.0)])
-        .finish();
-    let metrics = vec![
-        Metric::build()
-            .name("gauge1")
-            .data_gauge(Gauge::new(vec![number_data_point.clone(); record_count]))
-            .finish(),
-        Metric::build()
-            .name("sum1")
-            .data_sum(Sum::new(
-                AggregationTemporality::Cumulative,
-                true,
-                vec![number_data_point; record_count],
-            ))
-            .finish(),
-        Metric::build()
-            .name("histogram1")
-            .data_histogram(Histogram::new(
-                AggregationTemporality::Cumulative,
-                vec![histogram_data_point; record_count],
-            ))
-            .finish(),
-        Metric::build()
-            .name("exponential_histogram1")
-            .data_exponential_histogram(ExponentialHistogram::new(
-                AggregationTemporality::Cumulative,
-                vec![exponential_histogram_data_point; record_count],
-            ))
-            .finish(),
-        Metric::build()
-            .name("summary1")
-            .data_summary(Summary::new(vec![summary_data_point; record_count]))
-            .finish(),
-    ];
+    let record_count_specs = if deep_or_shallow {
+        vec![(record_count / 2, record_count - record_count / 2)]
+    }
+    else {
+        (0..record_count).step_by(4).map(|offset| {
+                let remaining = record_count - offset;
+                (remaining.min(2), remaining.saturating_sub(2).min(2))
+        }).collect()
+    };
+
+    let metrics: Vec<Metric> = record_count_specs.into_iter()
+        .enumerate()
+        .flat_map(|(index, (gauge_record_count, sum_record_count))| {
+            let mut out = Vec::new();
+            out.push(
+                Metric::build()
+                    .name(format!("gauge{}", index))
+                    .data_gauge(Gauge::new(vec![
+                        number_data_point.clone();
+                        gauge_record_count
+                    ]))
+                    .finish(),
+            );
+            if sum_record_count > 0 {
+                out.push(
+                    Metric::build()
+                        .name(format!("sum{}", index))
+                        .data_sum(Sum::new(
+                            AggregationTemporality::Cumulative,
+                            true,
+                            vec![number_data_point.clone(); sum_record_count],
+                        ))
+                        .finish(),
+                );
+            }
+            out
+        })
+        .collect();
+
     let scope_metrics =
         ScopeMetrics::new(scope, metrics).set_schema_url("http://schema.opentelemetry.io");
 
@@ -477,7 +461,7 @@ fn otlp_logs_metrics_traces_count_payload_items(c: &mut Criterion) {
     for record_count in [10, 100, 1_000] {
         let log_message = OtlpProtoMessage::Logs(create_logs_data(record_count));
         let trace_message = OtlpProtoMessage::Traces(create_traces_data(record_count));
-        let metric_message = OtlpProtoMessage::Metrics(create_metrics_data(record_count));
+        let metric_message = OtlpProtoMessage::Metrics(create_metrics_data(record_count, true));
 
         for (spec_name, spec_message) in [
             ("Logs", log_message),
@@ -512,6 +496,32 @@ fn otlp_logs_metrics_traces_count_payload_items(c: &mut Criterion) {
     group.finish();
 }
 
+fn otlp_metrics_count_payload_items(c: &mut Criterion) {
+    let mut group = c.benchmark_group("PData OTLP Metrics structure num_items overhead");
+    for record_count in [10, 100, 1_000] {
+        let variant = std::env::var("INPUT").unwrap_or("deep".into());
+        let input = match variant.as_str() {
+            "deep" => OtlpProtoMessage::Metrics(create_metrics_data(record_count, true)),
+            "shallow" => OtlpProtoMessage::Metrics(create_metrics_data(record_count, false)),
+            _ => OtlpProtoMessage::Metrics(create_metrics_data(record_count, true)),
+        };
+
+        _ = group.bench_function(
+            BenchmarkId::from_parameter(record_count),
+            |b| {
+                b.iter_batched_ref(
+                    || OtapPdata::new(Context::default(), black_box(otlp_message_to_bytes(&input).clone().into())),
+                    |pdata| black_box(pdata.num_items()),
+                    BatchSize::SmallInput,
+                )
+            },
+        );
+
+    }
+    group.finish();
+
+}
+
 criterion_group!(
     payload_measurements,
     count_logs,
@@ -519,6 +529,7 @@ criterion_group!(
     measure_payload_size,
     legacy_representation_paths,
     direct_codec_paths,
-    otlp_logs_metrics_traces_count_payload_items
+    otlp_logs_metrics_traces_count_payload_items,
+    otlp_metrics_count_payload_items
 );
 criterion_main!(payload_measurements);
