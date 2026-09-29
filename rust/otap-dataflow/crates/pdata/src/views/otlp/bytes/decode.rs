@@ -212,18 +212,34 @@ where
         None
     }
 
-    /// Advances the parser to find one of the fields specified in the `field_nums` argument.
-    /// If found, it returns the byte slice containing the value for this field and the
-    /// field number as a tuple.
+    /// Advances through the remaining message and returns the last encountered oneof field.
+    ///
+    /// The associated [`FieldRanges`] implementation must store all alternatives in one shared
+    /// range so each encountered alternative replaces the previous one.
     #[must_use]
-    pub fn advance_to_find_oneof(&self, field_nums: &[u64]) -> Option<(&'a [u8], u64)> {
-        for field_num in field_nums {
-            if let Some(buf) = self.advance_to_find_field(*field_num) {
-                return Some((buf, *field_num));
-            }
+    pub fn advance_to_find_last_oneof(&self, field_nums: &[u64]) -> Option<(&'a [u8], u64)> {
+        while self.state.pos.get() < self.buf.len() {
+            let pos = self.state.pos.get();
+            let Some((tag, next_pos)) = read_varint(self.buf, pos) else {
+                break;
+            };
+            let field = tag >> 3;
+            let wire_type = tag & 7;
+            let Some((start, end)) = field_value_range(self.buf, wire_type, next_pos) else {
+                break;
+            };
+            self.state.pos.set(end);
+            self.state
+                .field_ranges
+                .set_field_range(field, wire_type, start, end);
         }
 
-        None
+        field_nums.iter().find_map(|field_num| {
+            self.state
+                .field_ranges
+                .get_field_range(*field_num)
+                .map(|(start, end)| (&self.buf[start..end], *field_num))
+        })
     }
 }
 

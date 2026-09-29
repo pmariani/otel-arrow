@@ -1347,7 +1347,7 @@ impl MetricView for RawMetric<'_> {
     }
 
     fn data(&self) -> Option<Self::Data<'_>> {
-        let (slice, field_num) = self.byte_parser.advance_to_find_oneof(&[
+        let (slice, field_num) = self.byte_parser.advance_to_find_last_oneof(&[
             METRIC_GAUGE,
             METRIC_SUM,
             METRIC_HISTOGRAM,
@@ -1640,7 +1640,7 @@ impl NumberDataPointView for RawNumberDataPoint<'_> {
     fn value(&self) -> Option<Value> {
         let (slice, field_num) = self
             .byte_parser
-            .advance_to_find_oneof(&[NUMBER_DP_AS_DOUBLE, NUMBER_DP_AS_INT])?;
+            .advance_to_find_last_oneof(&[NUMBER_DP_AS_DOUBLE, NUMBER_DP_AS_INT])?;
 
         match field_num {
             NUMBER_DP_AS_DOUBLE => {
@@ -1652,7 +1652,7 @@ impl NumberDataPointView for RawNumberDataPoint<'_> {
                 Some(Value::Integer(i64::from_le_bytes(int_bytes)))
             }
             _ => {
-                // this shouldn't happen, as advance_to_find_oneof should return one of the passed
+                // this shouldn't happen, as advance_to_find_last_oneof should return one of the passed
                 // field_num, so just ignore it
                 None
             }
@@ -2095,7 +2095,7 @@ impl ExemplarView for RawExemplar<'_> {
     fn value(&self) -> Option<Value> {
         let (slice, field_num) = self
             .byte_parser
-            .advance_to_find_oneof(&[EXEMPLAR_AS_DOUBLE, EXEMPLAR_AS_INT])?;
+            .advance_to_find_last_oneof(&[EXEMPLAR_AS_DOUBLE, EXEMPLAR_AS_INT])?;
 
         match field_num {
             EXEMPLAR_AS_DOUBLE => {
@@ -2107,7 +2107,7 @@ impl ExemplarView for RawExemplar<'_> {
                 Some(Value::Integer(i64::from_le_bytes(int_bytes)))
             }
             _ => {
-                // this shouldn't happen, as advance_to_find_oneof should return one of the passed
+                // this shouldn't happen, as advance_to_find_last_oneof should return one of the passed
                 // field_num, so just ignore it
                 None
             }
