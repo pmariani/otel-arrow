@@ -1754,3 +1754,189 @@ mod test {
         assert_eq!(otlp_bytes.num_items(), 11);
     }
 }
+
+#[cfg(test)]
+mod pierretest {
+    use super::*;
+    use crate::proto::opentelemetry::collector::metrics::v1::ExportMetricsServiceRequest;
+    use crate::proto::opentelemetry::metrics::v1::MetricsData;
+    use crate::proto::opentelemetry::metrics::v1::number_data_point::Value;
+    use crate::proto::opentelemetry::metrics::v1::{
+        Gauge, Metric, NumberDataPoint, ResourceMetrics, ScopeMetrics, Sum, metric::Data,
+    };
+    use bytes::Bytes;
+    use prost::Message;
+
+    fn hardcoded_bytes() -> (Vec<u8>, Vec<u8>) {
+        let well_formed_metrics = vec![
+            0x0a, 0x81, 0x01, 0x12, 0x63, 0x12, 0x48, 0x0a, 0x05, 0x67, 0x61, 0x75, 0x67, 0x65,
+            0x12, 0x0b, 0x64, 0x65, 0x73, 0x63, 0x72, 0x69, 0x70, 0x74, 0x69, 0x6f, 0x6e, 0x1a,
+            0x04, 0x75, 0x6e, 0x69, 0x74, 0x2a, 0x2c, 0x0a, 0x09, 0x31, 0x0c, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x0a, 0x09, 0x31, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x0a, 0x09, 0x31, 0x0f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0a, 0x09,
+            0x31, 0x0e, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1a, 0x17, 0x73, 0x63, 0x6f,
+            0x70, 0x65, 0x5f, 0x6d, 0x65, 0x74, 0x72, 0x69, 0x63, 0x5f, 0x73, 0x63, 0x68, 0x65,
+            0x6d, 0x61, 0x5f, 0x75, 0x72, 0x6c, 0x1a, 0x1a, 0x72, 0x65, 0x73, 0x6f, 0x75, 0x72,
+            0x63, 0x65, 0x5f, 0x6d, 0x65, 0x74, 0x72, 0x69, 0x63, 0x5f, 0x73, 0x63, 0x68, 0x65,
+            0x6d, 0x61, 0x5f, 0x75, 0x72, 0x6c,
+        ];
+
+        // Output the well formed metrics, and the gauge bytes
+        // Output the sum bytes by themselves,
+        // Manually add sum bytes after gauge bytes => num_items should be 1
+        // Update the metrics length fields to account for the additional sum bytes
+        let malformed_metrics = vec![
+            0x0a, 0x8e, 0x01, 0x12, 0x70, 0x12, 0x55, 0x0a, 0x05, 0x67, 0x61, 0x75, 0x67, 0x65,
+            0x12, 0x0b, 0x64, 0x65, 0x73, 0x63, 0x72, 0x69, 0x70, 0x74, 0x69, 0x6f, 0x6e, 0x1a,
+            0x04, 0x75, 0x6e, 0x69, 0x74, 0x2a, 0x2c, 0x0a, 0x09, 0x31, 0x0c, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x0a, 0x09, 0x31, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x0a, 0x09, 0x31, 0x0f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0a, 0x09,
+            0x31, 0x0e, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x3a, 0x0b, 0x0a, 0x09, 0x31,
+            0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1a, 0x17, 0x73, 0x63, 0x6f, 0x70,
+            0x65, 0x5f, 0x6d, 0x65, 0x74, 0x72, 0x69, 0x63, 0x5f, 0x73, 0x63, 0x68, 0x65, 0x6d,
+            0x61, 0x5f, 0x75, 0x72, 0x6c, 0x1a, 0x1a, 0x72, 0x65, 0x73, 0x6f, 0x75, 0x72, 0x63,
+            0x65, 0x5f, 0x6d, 0x65, 0x74, 0x72, 0x69, 0x63, 0x5f, 0x73, 0x63, 0x68, 0x65, 0x6d,
+            0x61, 0x5f, 0x75, 0x72, 0x6c,
+        ];
+        (well_formed_metrics, malformed_metrics)
+    }
+
+    #[test]
+    fn output_bytes() {
+        let sum = Data::Sum(Sum {
+            data_points: vec![NumberDataPoint {
+                value: Some(Value::AsInt(255)),
+                attributes: vec![],
+                exemplars: vec![],
+                start_time_unix_nano: 0,
+                time_unix_nano: 0,
+                flags: 0,
+            }],
+            aggregation_temporality: 0,
+            is_monotonic: false,
+        });
+        let gauge = Data::Gauge(Gauge {
+            data_points: vec![
+                NumberDataPoint {
+                    value: Some(Value::AsInt(12)),
+                    attributes: vec![],
+                    exemplars: vec![],
+                    start_time_unix_nano: 0,
+                    time_unix_nano: 0,
+                    flags: 0,
+                },
+                NumberDataPoint {
+                    value: Some(Value::AsInt(10)),
+                    attributes: vec![],
+                    exemplars: vec![],
+                    start_time_unix_nano: 0,
+                    time_unix_nano: 0,
+                    flags: 0,
+                },
+                NumberDataPoint {
+                    value: Some(Value::AsInt(15)),
+                    attributes: vec![],
+                    exemplars: vec![],
+                    start_time_unix_nano: 0,
+                    time_unix_nano: 0,
+                    flags: 0,
+                },
+                NumberDataPoint {
+                    value: Some(Value::AsInt(14)),
+                    attributes: vec![],
+                    exemplars: vec![],
+                    start_time_unix_nano: 0,
+                    time_unix_nano: 0,
+                    flags: 0,
+                },
+            ],
+        });
+        let metric = Metric {
+            name: "gauge".into(),
+            description: "description".into(),
+            unit: "unit".into(),
+            metadata: vec![],
+            data: Some(gauge.clone()),
+        };
+        let metrics = ExportMetricsServiceRequest {
+            resource_metrics: vec![ResourceMetrics {
+                resource: None,
+                scope_metrics: vec![ScopeMetrics {
+                    scope: None,
+                    metrics: vec![metric.clone()],
+                    schema_url: "scope_metric_schema_url".into(),
+                }],
+                schema_url: "resource_metric_schema_url".into(),
+            }],
+        };
+        let mut full_buffer = Vec::new();
+        metrics
+            .encode(&mut full_buffer)
+            .expect("Unable to encode metrics");
+
+        let mut gauge_buffer = Vec::new();
+        gauge.encode(&mut gauge_buffer);
+
+        let mut sum_buffer = Vec::new();
+        sum.encode(&mut sum_buffer);
+
+        println!("sum bytes {:x}", Bytes::from(sum_buffer));
+        println!("gauge bytes {:x}", Bytes::from(gauge_buffer));
+        println!("full bytes {:x}", Bytes::from(full_buffer));
+    }
+
+    #[test]
+    fn test_byte_payloads() {
+        let (well_formed, malformed) = hardcoded_bytes();
+
+        println!(
+            "MetricsData well formed {:?}",
+            MetricsData::decode(&*well_formed).unwrap().resource_metrics[0].scope_metrics[0]
+                .metrics[0]
+                .data
+                .as_ref()
+                .unwrap()
+        );
+        println!(
+            "MetricsData malformed {:?}",
+            MetricsData::decode(&*malformed).unwrap().resource_metrics[0].scope_metrics[0].metrics
+                [0]
+            .data
+            .as_ref()
+            .unwrap()
+        );
+
+        println!(
+            "ExportMetricsServiceRequest well formed {:?}",
+            ExportMetricsServiceRequest::decode(&*well_formed)
+                .unwrap()
+                .resource_metrics[0]
+                .scope_metrics[0]
+                .metrics[0]
+                .data
+                .as_ref()
+                .unwrap()
+        );
+        println!(
+            "ExportMetricsServiceRequest malformed {:?}",
+            ExportMetricsServiceRequest::decode(&*malformed)
+                .unwrap()
+                .resource_metrics[0]
+                .scope_metrics[0]
+                .metrics[0]
+                .data
+                .as_ref()
+                .unwrap()
+        );
+
+        let well = OtlpProtoBytes::ExportMetricsRequest(well_formed.into());
+        let mal = OtlpProtoBytes::ExportMetricsRequest(malformed.into());
+        assert_eq!(well.num_items(), 4, "error with well formed payload");
+        assert_eq!(
+            mal.num_items(),
+            1,
+            "malformed payload should pick the last oneof whose data point count is 1"
+        );
+        // TODO: I expect that num_items() v2 implementation will incorrectly return 5
+    }
+}
