@@ -2299,18 +2299,6 @@ mod test {
                         // First instance of the OneOf field.
                         proto.encode_len_delimited(METRIC_GAUGE, |proto| {
                             proto.encode_len_delimited(GAUGE_DATA_POINTS, |proto| {
-                                proto.encode_field_tag(
-                                    NUMBER_DP_START_TIME_UNIX_NANO,
-                                    wire_types::FIXED64,
-                                )?;
-                                proto.extend_from_slice(&0_u64.to_le_bytes())?;
-
-                                proto.encode_field_tag(
-                                    NUMBER_DP_TIME_UNIX_NANO,
-                                    wire_types::FIXED64,
-                                )?;
-                                proto.extend_from_slice(&0_u64.to_le_bytes())?;
-
                                 proto.encode_field_tag(NUMBER_DP_AS_DOUBLE, wire_types::FIXED64)?;
                                 proto.extend_from_slice(&3.14_f64.to_le_bytes())
                             })
@@ -2319,26 +2307,18 @@ mod test {
                         // Second instance of the OneOf field.
                         proto.encode_len_delimited(METRIC_SUM, |proto| {
                             proto.encode_len_delimited(SUM_DATA_POINTS, |proto| {
-                                proto.encode_field_tag(
-                                    NUMBER_DP_START_TIME_UNIX_NANO,
-                                    wire_types::FIXED64,
-                                )?;
-                                proto.extend_from_slice(&0_u64.to_le_bytes())?;
-
-                                proto.encode_field_tag(
-                                    NUMBER_DP_TIME_UNIX_NANO,
-                                    wire_types::FIXED64,
-                                )?;
-                                proto.extend_from_slice(&0_u64.to_le_bytes())?;
-
                                 proto.encode_field_tag(NUMBER_DP_AS_DOUBLE, wire_types::FIXED64)?;
                                 proto.extend_from_slice(&3.14_f64.to_le_bytes())
                             })
-                        })
+                        })?;
 
                         // Third instance of the OneOf field.
-                        // proto.encode_len_delimited(METRIC_SUMMARY, |proto| {
-                        // })
+                        proto.encode_len_delimited(METRIC_SUMMARY, |proto| {
+                            proto.encode_len_delimited(SUMMARY_DATA_POINTS, |proto| {
+                                proto.encode_field_tag(SUMMARY_DP_COUNT, wire_types::FIXED64)?;
+                                proto.extend_from_slice(&0_u64.to_le_bytes())
+                            })
+                        })
                     })
                 })
             })
