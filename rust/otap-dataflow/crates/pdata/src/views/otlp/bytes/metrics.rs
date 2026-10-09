@@ -2118,7 +2118,6 @@ impl ExemplarView for RawExemplar<'_> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::proto::opentelemetry::metrics::v1::exemplar;
     use crate::{
         otlp::{ProtoBuffer, common::BoundedBuf},
         proto::opentelemetry::metrics::v1::{
@@ -2315,11 +2314,27 @@ mod test {
                                 proto.encode_field_tag(NUMBER_DP_AS_DOUBLE, wire_types::FIXED64)?;
                                 proto.extend_from_slice(&3.14_f64.to_le_bytes())
                             })
-                        }) // ?;
+                        })?;
 
                         // Second instance of the OneOf field.
-                        // proto.encode_len_delimited(METRIC_SUM, |proto| {
-                        // })?;
+                        proto.encode_len_delimited(METRIC_SUM, |proto| {
+                            proto.encode_len_delimited(SUM_DATA_POINTS, |proto| {
+                                proto.encode_field_tag(
+                                    NUMBER_DP_START_TIME_UNIX_NANO,
+                                    wire_types::FIXED64,
+                                )?;
+                                proto.extend_from_slice(&0_u64.to_le_bytes())?;
+
+                                proto.encode_field_tag(
+                                    NUMBER_DP_TIME_UNIX_NANO,
+                                    wire_types::FIXED64,
+                                )?;
+                                proto.extend_from_slice(&0_u64.to_le_bytes())?;
+
+                                proto.encode_field_tag(NUMBER_DP_AS_DOUBLE, wire_types::FIXED64)?;
+                                proto.extend_from_slice(&3.14_f64.to_le_bytes())
+                            })
+                        })
 
                         // Third instance of the OneOf field.
                         // proto.encode_len_delimited(METRIC_SUMMARY, |proto| {
@@ -2398,11 +2413,7 @@ mod test {
             let gauge = data.as_gauge().expect("gauge");
             let point = gauge.inner.data_points[0].value;
 
-            match point {
-                Some(number_data_point::Value::AsDouble(d)) => d,
-                Some(number_data_point::Value::AsInt(i)) => i as f64,
-                _ => panic!("foo"),
-            }
+            point.as_ref().map(Value::from)
         };
 
         let parsed_number_point_value = {
@@ -2414,11 +2425,7 @@ mod test {
             let gauge = data.as_gauge().expect("a gauge");
             let point = gauge.data_points().next().expect("a data point");
 
-            match point.value() {
-                Some(Value::Double(d)) => d,
-                Some(Value::Integer(i)) => i as f64,
-                _ => panic!("foo"),
-            }
+            point.value()
         };
 
         assert_eq!(parsed_number_point_value, reference_number_point_value);
@@ -2482,13 +2489,9 @@ mod test {
             let metric = scope.metrics().next().expect("a metric");
             let data = metric.data().expect("data");
             let gauge = data.as_gauge().expect("gauge");
-            let exemplar = &gauge.inner.data_points[0].exemplars[0];
+            let exemplar_value = &gauge.inner.data_points[0].exemplars[0].value;
 
-            match exemplar.value {
-                Some(exemplar::Value::AsDouble(d)) => d,
-                Some(exemplar::Value::AsInt(i)) => i as f64,
-                _ => panic!("foo"),
-            }
+            exemplar_value.as_ref().map(Value::from)
         };
 
         let decoded_exemplar_value = {
@@ -2501,11 +2504,7 @@ mod test {
             let point = gauge.data_points().next().expect("a data point");
             let exemplar = point.exemplars().next().expect("an exemplar");
 
-            match exemplar.value() {
-                Some(Value::Double(d)) => d,
-                Some(Value::Integer(i)) => i as f64,
-                _ => panic!("foo"),
-            }
+            exemplar.value()
         };
 
         assert_eq!(decoded_exemplar_value, reference_examplar_value);
