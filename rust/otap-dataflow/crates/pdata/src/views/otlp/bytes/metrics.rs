@@ -2296,6 +2296,8 @@ mod test {
                     proto.encode_len_delimited(SCOPE_METRICS_METRICS, |proto| {
                         proto.encode_string(METRIC_NAME, "metric1")?;
                         proto.encode_string(METRIC_UNIT, "centimeters")?;
+
+                        // First instance of the OneOf field.
                         proto.encode_len_delimited(METRIC_GAUGE, |proto| {
                             proto.encode_len_delimited(GAUGE_DATA_POINTS, |proto| {
                                 proto.encode_field_tag(
@@ -2314,8 +2316,12 @@ mod test {
                                 proto.extend_from_slice(&3.14_f64.to_le_bytes())
                             })
                         }) // ?;
+
+                        // Second instance of the OneOf field.
                         // proto.encode_len_delimited(METRIC_SUM, |proto| {
                         // })?;
+
+                        // Third instance of the OneOf field.
                         // proto.encode_len_delimited(METRIC_SUMMARY, |proto| {
                         // })
                     })
@@ -2369,10 +2375,11 @@ mod test {
                                 )?;
                                 proto.extend_from_slice(&0_u64.to_le_bytes())?;
 
+                                // First instance of the OneOf field.
                                 proto.encode_field_tag(NUMBER_DP_AS_DOUBLE, wire_types::FIXED64)?;
                                 proto.extend_from_slice(&3.14_f64.to_le_bytes())?;
 
-                                // Ill-formed: adding a second instance of the OneOf field.
+                                // Second instance of the OneOf field.
                                 proto.encode_field_tag(NUMBER_DP_AS_INT, wire_types::FIXED64)?;
                                 proto.extend_from_slice(&7_i64.to_le_bytes())
                             })
@@ -2388,13 +2395,10 @@ mod test {
             let scope = resource.scopes().next().expect("a scope");
             let metric = scope.metrics().next().expect("a metric");
             let data = metric.data().expect("data");
+            let gauge = data.as_gauge().expect("gauge");
+            let point = gauge.inner.data_points[0].value;
 
-            let prost_point = match data.inner {
-                Data::Gauge(gauge) => gauge.data_points[0].value,
-                _ => panic!("foo"),
-            };
-
-            match prost_point {
+            match point {
                 Some(number_data_point::Value::AsDouble(d)) => d,
                 Some(number_data_point::Value::AsInt(i)) => i as f64,
                 _ => panic!("foo"),
@@ -2453,13 +2457,14 @@ mod test {
                                     )?;
                                     proto.extend_from_slice(&0_u64.to_le_bytes())?;
 
+                                    // First instance of the OneOf field.
                                     proto.encode_field_tag(
                                         EXEMPLAR_AS_DOUBLE,
                                         wire_types::FIXED64,
                                     )?;
                                     proto.extend_from_slice(&3.14_f64.to_le_bytes())?;
 
-                                    // Ill-formed: adding a second instance of the OneOf field.
+                                    // Second instance of the OneOf field.
                                     proto.encode_field_tag(EXEMPLAR_AS_INT, wire_types::FIXED64)?;
                                     proto.extend_from_slice(&7_u64.to_le_bytes())
                                 })
@@ -2476,13 +2481,10 @@ mod test {
             let scope = resource.scopes().next().expect("a scope");
             let metric = scope.metrics().next().expect("a metric");
             let data = metric.data().expect("data");
+            let gauge = data.as_gauge().expect("gauge");
+            let exemplar = &gauge.inner.data_points[0].exemplars[0];
 
-            let prost_exemplar = match data.inner {
-                Data::Gauge(gauge) => &gauge.data_points[0].exemplars[0],
-                _ => panic!("foo"),
-            };
-
-            match prost_exemplar.value {
+            match exemplar.value {
                 Some(exemplar::Value::AsDouble(d)) => d,
                 Some(exemplar::Value::AsInt(i)) => i as f64,
                 _ => panic!("foo"),
