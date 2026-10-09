@@ -2033,13 +2033,6 @@ mod test {
                 .unwrap();
             let parsed_bytes = OtlpProtoBytes::ExportMetricsRequest(proto.into_bytes());
             assert_eq!(parsed_bytes.num_items(), expected_num_items);
-
-            // TODO: AnyValue / KeyValue / KeyValueList also uses OneOf, but we are no parsing the
-            // bytes manually , or at least not with advance_to_find_oneof
-            // TODO: test data() metric_gauge, metric_sum, etc.. for RawMetric
-            // TODO: test value() number_dp_as_double, number_dp_as_int for RawNumberDataPoint
-            // TODO: test value() examplar_as_double, exemplar_as_int for RawExamplar
-            // TODO: can add notes and thoughts to the issue, which works as a claim as well
         }
     }
 }
