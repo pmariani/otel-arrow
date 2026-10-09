@@ -2118,17 +2118,18 @@ impl ExemplarView for RawExemplar<'_> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::proto::opentelemetry::metrics::v1::exemplar;
     use crate::{
-        otlp::{ProtoBuffer, common::BoundedBuf}, proto::opentelemetry::metrics::v1::{
-            Metric, MetricsData, NumberDataPoint, Sum, metric::Data, number_data_point
+        otlp::{ProtoBuffer, common::BoundedBuf},
+        proto::opentelemetry::metrics::v1::{
+            Metric, MetricsData, NumberDataPoint, Sum, metric::Data, number_data_point,
         },
     };
-    use crate::proto::opentelemetry::metrics::v1::exemplar;
     use prost::Message;
 
     use crate::proto::consts::field_num::metrics::{
-        METRIC_GAUGE, METRIC_NAME, METRIC_SUM, METRIC_SUMMARY, METRIC_UNIT, METRICS_DATA_RESOURCE_METRICS,
-        RESOURCE_METRICS_SCOPE_METRICS, SCOPE_METRICS_METRICS,
+        METRIC_GAUGE, METRIC_NAME, METRIC_SUM, METRIC_SUMMARY, METRIC_UNIT,
+        METRICS_DATA_RESOURCE_METRICS, RESOURCE_METRICS_SCOPE_METRICS, SCOPE_METRICS_METRICS,
     };
 
     #[test]
@@ -2287,10 +2288,15 @@ mod test {
     }
 
     #[derive(Debug, PartialEq)]
-    enum OneOfType { Sum, Gauge, Summary, AnythingElse}
+    enum OneOfType {
+        Gauge,
+        Sum,
+        Summary,
+        Unknown,
+    }
 
     #[test]
-    fn test_ill_formed_oneof_payloads_rawmetrics() {
+    fn test_ill_formed_oneof_payloads_data_field() {
         let mut proto = ProtoBuffer::default();
         proto
             .encode_len_delimited(METRICS_DATA_RESOURCE_METRICS, |proto| {
@@ -2300,16 +2306,22 @@ mod test {
                         proto.encode_string(METRIC_UNIT, "centimeters")?;
                         proto.encode_len_delimited(METRIC_GAUGE, |proto| {
                             proto.encode_len_delimited(GAUGE_DATA_POINTS, |proto| {
-                                proto.encode_field_tag(NUMBER_DP_START_TIME_UNIX_NANO, wire_types::FIXED64)?;
+                                proto.encode_field_tag(
+                                    NUMBER_DP_START_TIME_UNIX_NANO,
+                                    wire_types::FIXED64,
+                                )?;
                                 proto.extend_from_slice(&0_u64.to_le_bytes())?;
 
-                                proto.encode_field_tag(NUMBER_DP_TIME_UNIX_NANO, wire_types::FIXED64)?;
+                                proto.encode_field_tag(
+                                    NUMBER_DP_TIME_UNIX_NANO,
+                                    wire_types::FIXED64,
+                                )?;
                                 proto.extend_from_slice(&0_u64.to_le_bytes())?;
 
                                 proto.encode_field_tag(NUMBER_DP_AS_DOUBLE, wire_types::FIXED64)?;
                                 proto.extend_from_slice(&3.14_f64.to_le_bytes())
                             })
-                        })// ?;
+                        }) // ?;
                         // proto.encode_len_delimited(METRIC_SUM, |proto| {
                         // })?;
                         // proto.encode_len_delimited(METRIC_SUMMARY, |proto| {
@@ -2330,7 +2342,7 @@ mod test {
                 Data::Sum(_) => OneOfType::Sum,
                 Data::Summary(_) => OneOfType::Summary,
                 Data::Gauge(_) => OneOfType::Gauge,
-                _ => OneOfType::AnythingElse,
+                _ => OneOfType::Unknown,
             }
         };
 
@@ -2348,7 +2360,7 @@ mod test {
             } else if let Some(_) = data.as_summary() {
                 OneOfType::Summary
             } else {
-                OneOfType::AnythingElse
+                OneOfType::Unknown
             }
         };
 
@@ -2356,7 +2368,7 @@ mod test {
     }
 
     #[test]
-    fn test_ill_formed_oneof_payloads_rawnumberdatapoints() {
+    fn test_ill_formed_oneof_payloads_number_data_point_field() {
         let mut proto = ProtoBuffer::default();
         proto
             .encode_len_delimited(METRICS_DATA_RESOURCE_METRICS, |proto| {
@@ -2366,10 +2378,16 @@ mod test {
                         proto.encode_string(METRIC_UNIT, "centimeters")?;
                         proto.encode_len_delimited(METRIC_GAUGE, |proto| {
                             proto.encode_len_delimited(GAUGE_DATA_POINTS, |proto| {
-                                proto.encode_field_tag(NUMBER_DP_START_TIME_UNIX_NANO, wire_types::FIXED64)?;
+                                proto.encode_field_tag(
+                                    NUMBER_DP_START_TIME_UNIX_NANO,
+                                    wire_types::FIXED64,
+                                )?;
                                 proto.extend_from_slice(&0_u64.to_le_bytes())?;
 
-                                proto.encode_field_tag(NUMBER_DP_TIME_UNIX_NANO, wire_types::FIXED64)?;
+                                proto.encode_field_tag(
+                                    NUMBER_DP_TIME_UNIX_NANO,
+                                    wire_types::FIXED64,
+                                )?;
                                 proto.extend_from_slice(&0_u64.to_le_bytes())?;
 
                                 proto.encode_field_tag(NUMBER_DP_AS_DOUBLE, wire_types::FIXED64)?;
@@ -2424,8 +2442,8 @@ mod test {
     }
 
     #[test]
-    fn test_ill_formed_oneof_payloads_rawexamplar() {
-          let mut proto = ProtoBuffer::default();
+    fn test_ill_formed_oneof_payloads_exemplar_field() {
+        let mut proto = ProtoBuffer::default();
         proto
             .encode_len_delimited(METRICS_DATA_RESOURCE_METRICS, |proto| {
                 proto.encode_len_delimited(RESOURCE_METRICS_SCOPE_METRICS, |proto| {
@@ -2434,20 +2452,32 @@ mod test {
                         proto.encode_string(METRIC_UNIT, "centimeters")?;
                         proto.encode_len_delimited(METRIC_GAUGE, |proto| {
                             proto.encode_len_delimited(GAUGE_DATA_POINTS, |proto| {
-                                proto.encode_field_tag(NUMBER_DP_START_TIME_UNIX_NANO, wire_types::FIXED64)?;
+                                proto.encode_field_tag(
+                                    NUMBER_DP_START_TIME_UNIX_NANO,
+                                    wire_types::FIXED64,
+                                )?;
                                 proto.extend_from_slice(&0_u64.to_le_bytes())?;
 
-                                proto.encode_field_tag(NUMBER_DP_TIME_UNIX_NANO, wire_types::FIXED64)?;
+                                proto.encode_field_tag(
+                                    NUMBER_DP_TIME_UNIX_NANO,
+                                    wire_types::FIXED64,
+                                )?;
                                 proto.extend_from_slice(&0_u64.to_le_bytes())?;
 
                                 proto.encode_field_tag(NUMBER_DP_AS_INT, wire_types::FIXED64)?;
                                 proto.extend_from_slice(&7_i64.to_le_bytes())?;
 
                                 proto.encode_len_delimited(NUMBER_DP_EXEMPLARS, |proto| {
-                                    proto.encode_field_tag(EXEMPLAR_TIME_UNIX_NANO, wire_types::FIXED64)?;
+                                    proto.encode_field_tag(
+                                        EXEMPLAR_TIME_UNIX_NANO,
+                                        wire_types::FIXED64,
+                                    )?;
                                     proto.extend_from_slice(&0_u64.to_le_bytes())?;
 
-                                    proto.encode_field_tag(EXEMPLAR_AS_DOUBLE, wire_types::FIXED64)?;
+                                    proto.encode_field_tag(
+                                        EXEMPLAR_AS_DOUBLE,
+                                        wire_types::FIXED64,
+                                    )?;
                                     proto.extend_from_slice(&3.14_f64.to_le_bytes())?;
 
                                     // Ill-formed: adding a second instance of the OneOf field.
