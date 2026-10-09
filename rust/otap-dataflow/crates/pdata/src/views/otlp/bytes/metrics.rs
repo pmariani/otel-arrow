@@ -2127,8 +2127,7 @@ mod test {
     use prost::Message;
 
     use crate::proto::consts::field_num::metrics::{
-        METRIC_GAUGE, METRIC_NAME, METRIC_SUM, METRIC_SUMMARY, METRIC_UNIT,
-        METRICS_DATA_RESOURCE_METRICS, RESOURCE_METRICS_SCOPE_METRICS, SCOPE_METRICS_METRICS,
+        METRIC_GAUGE, METRIC_SUM, METRIC_SUMMARY, METRICS_DATA_RESOURCE_METRICS, RESOURCE_METRICS_SCOPE_METRICS, SCOPE_METRICS_METRICS,
     };
 
     #[test]
@@ -2293,9 +2292,6 @@ mod test {
             .encode_len_delimited(METRICS_DATA_RESOURCE_METRICS, |proto| {
                 proto.encode_len_delimited(RESOURCE_METRICS_SCOPE_METRICS, |proto| {
                     proto.encode_len_delimited(SCOPE_METRICS_METRICS, |proto| {
-                        proto.encode_string(METRIC_NAME, "metric1")?;
-                        proto.encode_string(METRIC_UNIT, "centimeters")?;
-
                         // First instance of the OneOf field.
                         proto.encode_len_delimited(METRIC_GAUGE, |proto| {
                             proto.encode_len_delimited(GAUGE_DATA_POINTS, |proto| {
@@ -2354,22 +2350,8 @@ mod test {
             .encode_len_delimited(METRICS_DATA_RESOURCE_METRICS, |proto| {
                 proto.encode_len_delimited(RESOURCE_METRICS_SCOPE_METRICS, |proto| {
                     proto.encode_len_delimited(SCOPE_METRICS_METRICS, |proto| {
-                        proto.encode_string(METRIC_NAME, "metric1")?;
-                        proto.encode_string(METRIC_UNIT, "centimeters")?;
                         proto.encode_len_delimited(METRIC_GAUGE, |proto| {
                             proto.encode_len_delimited(GAUGE_DATA_POINTS, |proto| {
-                                proto.encode_field_tag(
-                                    NUMBER_DP_START_TIME_UNIX_NANO,
-                                    wire_types::FIXED64,
-                                )?;
-                                proto.extend_from_slice(&0_u64.to_le_bytes())?;
-
-                                proto.encode_field_tag(
-                                    NUMBER_DP_TIME_UNIX_NANO,
-                                    wire_types::FIXED64,
-                                )?;
-                                proto.extend_from_slice(&0_u64.to_le_bytes())?;
-
                                 // First instance of the OneOf field.
                                 proto.encode_field_tag(NUMBER_DP_AS_DOUBLE, wire_types::FIXED64)?;
                                 proto.extend_from_slice(&3.14_f64.to_le_bytes())?;
@@ -2418,32 +2400,9 @@ mod test {
             .encode_len_delimited(METRICS_DATA_RESOURCE_METRICS, |proto| {
                 proto.encode_len_delimited(RESOURCE_METRICS_SCOPE_METRICS, |proto| {
                     proto.encode_len_delimited(SCOPE_METRICS_METRICS, |proto| {
-                        proto.encode_string(METRIC_NAME, "metric1")?;
-                        proto.encode_string(METRIC_UNIT, "centimeters")?;
                         proto.encode_len_delimited(METRIC_GAUGE, |proto| {
                             proto.encode_len_delimited(GAUGE_DATA_POINTS, |proto| {
-                                proto.encode_field_tag(
-                                    NUMBER_DP_START_TIME_UNIX_NANO,
-                                    wire_types::FIXED64,
-                                )?;
-                                proto.extend_from_slice(&0_u64.to_le_bytes())?;
-
-                                proto.encode_field_tag(
-                                    NUMBER_DP_TIME_UNIX_NANO,
-                                    wire_types::FIXED64,
-                                )?;
-                                proto.extend_from_slice(&0_u64.to_le_bytes())?;
-
-                                proto.encode_field_tag(NUMBER_DP_AS_INT, wire_types::FIXED64)?;
-                                proto.extend_from_slice(&7_i64.to_le_bytes())?;
-
                                 proto.encode_len_delimited(NUMBER_DP_EXEMPLARS, |proto| {
-                                    proto.encode_field_tag(
-                                        EXEMPLAR_TIME_UNIX_NANO,
-                                        wire_types::FIXED64,
-                                    )?;
-                                    proto.extend_from_slice(&0_u64.to_le_bytes())?;
-
                                     // First instance of the OneOf field.
                                     proto.encode_field_tag(
                                         EXEMPLAR_AS_DOUBLE,
