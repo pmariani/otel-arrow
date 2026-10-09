@@ -2287,14 +2287,6 @@ mod test {
         assert_eq!(bucket_counts, vec![1, 2, 3]);
     }
 
-    #[derive(Debug, PartialEq)]
-    enum OneOfType {
-        Gauge,
-        Sum,
-        Summary,
-        Unknown,
-    }
-
     #[test]
     fn test_ill_formed_oneof_payloads_data_field() {
         let mut proto = ProtoBuffer::default();
@@ -2338,12 +2330,7 @@ mod test {
             let metric = scope.metrics().next().expect("a metric");
             let data = metric.data().expect("data");
 
-            match data.inner {
-                Data::Sum(_) => OneOfType::Sum,
-                Data::Summary(_) => OneOfType::Summary,
-                Data::Gauge(_) => OneOfType::Gauge,
-                _ => OneOfType::Unknown,
-            }
+            data.value_type()
         };
 
         let parsed_data_type = {
@@ -2353,15 +2340,7 @@ mod test {
             let metric = scope.metrics().next().expect("a metric");
             let data = metric.data().expect("data");
 
-            if let Some(_) = data.as_gauge() {
-                OneOfType::Gauge
-            } else if let Some(_) = data.as_sum() {
-                OneOfType::Sum
-            } else if let Some(_) = data.as_summary() {
-                OneOfType::Summary
-            } else {
-                OneOfType::Unknown
-            }
+            data.value_type()
         };
 
         assert_eq!(parsed_data_type, reference_data_type);
