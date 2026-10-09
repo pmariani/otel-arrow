@@ -2313,45 +2313,53 @@ mod test {
             })
         }
 
-        let mut proto = ProtoBuffer::default();
-        proto
+        type FieldEncoder = fn(&mut ProtoBuffer) -> Result<(), EncodeFailure>;
+
+        let field_encoding_permutations: Vec<Vec<FieldEncoder>> = vec![
+            vec![gauge_field],
+            vec![gauge_field, sum_field],
+            vec![gauge_field, sum_field, summary_field],
+            vec![sum_field, gauge_field, summary_field],
+            vec![sum_field, summary_field, gauge_field],
+        ];
+
+        for scenario in field_encoding_permutations {
+            let mut proto = ProtoBuffer::default();
+            proto
             .encode_len_delimited(METRICS_DATA_RESOURCE_METRICS, |proto| {
                 proto.encode_len_delimited(RESOURCE_METRICS_SCOPE_METRICS, |proto| {
                     proto.encode_len_delimited(SCOPE_METRICS_METRICS, |proto| {
-                        // First instance of the OneOf field.
-                        gauge_field(proto)?;
-
-                        // Second instance of the OneOf field.
-                        sum_field(proto)?;
-
-                        // Third instance of the OneOf field.
-                        summary_field(proto)
+                        for encode_oneof_field_fn in scenario {
+                            encode_oneof_field_fn(proto)?;
+                        }
+                        Ok::<(), EncodeFailure>(())
                     })
                 })
             })
             .unwrap();
 
-        let reference_data_type = {
-            let prost_metrics = MetricsData::decode(proto.as_slice()).expect("should decode");
-            let resource = prost_metrics.resources().next().expect("a resource");
-            let scope = resource.scopes().next().expect("a scope");
-            let metric = scope.metrics().next().expect("a metric");
-            let data = metric.data().expect("data");
+            let reference_data_type = {
+                let prost_metrics = MetricsData::decode(proto.as_slice()).expect("should decode");
+                let resource = prost_metrics.resources().next().expect("a resource");
+                let scope = resource.scopes().next().expect("a scope");
+                let metric = scope.metrics().next().expect("a metric");
+                let data = metric.data().expect("data");
 
-            data.value_type()
-        };
+                data.value_type()
+            };
 
-        let parsed_data_type = {
-            let raw_metrics = RawMetricsData::new(proto.as_slice());
-            let resource = raw_metrics.resources().next().expect("a resource");
-            let scope = resource.scopes().next().expect("a scope");
-            let metric = scope.metrics().next().expect("a metric");
-            let data = metric.data().expect("data");
+            let parsed_data_type = {
+                let raw_metrics = RawMetricsData::new(proto.as_slice());
+                let resource = raw_metrics.resources().next().expect("a resource");
+                let scope = resource.scopes().next().expect("a scope");
+                let metric = scope.metrics().next().expect("a metric");
+                let data = metric.data().expect("data");
 
-            data.value_type()
-        };
+                data.value_type()
+            };
 
-        assert_eq!(parsed_data_type, reference_data_type);
+            assert_eq!(parsed_data_type, reference_data_type);
+        }
     }
 
     #[test]
