@@ -800,4 +800,6 @@ mod tests {
         assert_eq!(decode_sint32(u32::MAX - 1), i32::MAX);
         assert_eq!(decode_sint32(u32::MAX), i32::MIN);
     }
+
+    // TODO: or add tests here if I am testing low level stuff
 }

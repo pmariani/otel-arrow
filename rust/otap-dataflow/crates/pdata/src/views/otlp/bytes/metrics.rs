@@ -2119,12 +2119,20 @@ impl ExemplarView for RawExemplar<'_> {
 mod test {
     use super::*;
     use crate::{
-        otlp::{ProtoBuffer, common::BoundedBuf},
-        proto::opentelemetry::metrics::v1::{
-            Metric, NumberDataPoint, Sum, metric::Data, number_data_point,
+        otlp::{ProtoBuffer, common::BoundedBuf}, proto::opentelemetry::metrics::v1::{
+            Gauge, Metric, MetricsData, NumberDataPoint, Sum, Summary, SummaryDataPoint, metric::Data, number_data_point
         },
     };
+    use crate::proto::opentelemetry::metrics::v1::exemplar;
     use prost::Message;
+
+    use crate::otlp::common::EncodeFailure;
+    use crate::proto::consts::field_num::metrics::METRIC_SUMMARY;
+
+    use crate::proto::consts::field_num::metrics::{
+        METRIC_GAUGE, METRIC_NAME, METRIC_SUM, METRIC_UNIT, METRICS_DATA_RESOURCE_METRICS,
+        RESOURCE_METRICS_SCOPE_METRICS, SCOPE_METRICS_METRICS,
+    };
 
     #[test]
     fn test_oneof_double_reads() {
@@ -2279,5 +2287,327 @@ mod test {
         };
         let bucket_counts = bucket_view.bucket_counts().collect::<Vec<_>>();
         assert_eq!(bucket_counts, vec![1, 2, 3]);
+    }
+
+    // TODO: Consider the performance of calling these functions. They are doing manual bytes
+    // decoding, so I would assume the reason is performance and we should have corresponding
+    // benches?
+    // TODO: need to think about the caching behavior. Do/did some parsers keep track of what they
+    // are going through?
+
+    fn proto_encode_sum(proto: &mut ProtoBuffer) -> Result<(), EncodeFailure> {
+        proto.encode_len_delimited(METRIC_SUM, |proto| {
+            let data = Sum {
+                data_points: vec![NumberDataPoint {
+                    value: Some(number_data_point::Value::AsInt(255)),
+                    attributes: vec![],
+                    exemplars: vec![],
+                    start_time_unix_nano: 0,
+                    time_unix_nano: 0,
+                    flags: 0,
+                }],
+                aggregation_temporality: 0,
+                is_monotonic: false,
+            };
+            let mut bytes_data = Vec::new();
+            data.encode(&mut bytes_data).unwrap();
+            proto.extend_from_slice(&bytes_data)
+        })
+    }
+
+    fn proto_encode_gauge(proto: &mut ProtoBuffer) -> Result<(), EncodeFailure> {
+        proto.encode_len_delimited(METRIC_GAUGE, |proto| {
+            let data = Gauge {
+                data_points: vec![
+                    NumberDataPoint {
+                        value: Some(number_data_point::Value::AsInt(12)),
+                        attributes: vec![],
+                        exemplars: vec![],
+                        start_time_unix_nano: 0,
+                        time_unix_nano: 0,
+                        flags: 0,
+                    },
+                    NumberDataPoint {
+                        value: Some(number_data_point::Value::AsInt(10)),
+                        attributes: vec![],
+                        exemplars: vec![],
+                        start_time_unix_nano: 0,
+                        time_unix_nano: 0,
+                        flags: 0,
+                    },
+                    NumberDataPoint {
+                        value: Some(number_data_point::Value::AsInt(15)),
+                        attributes: vec![],
+                        exemplars: vec![],
+                        start_time_unix_nano: 0,
+                        time_unix_nano: 0,
+                        flags: 0,
+                    },
+                    NumberDataPoint {
+                        value: Some(number_data_point::Value::AsInt(14)),
+                        attributes: vec![],
+                        exemplars: vec![],
+                        start_time_unix_nano: 0,
+                        time_unix_nano: 0,
+                        flags: 0,
+                    },
+                ],
+            };
+            let mut bytes_data = Vec::new();
+            data.encode(&mut bytes_data).unwrap();
+            proto.extend_from_slice(&bytes_data)
+        })
+    }
+
+    fn proto_encode_summary(proto: &mut ProtoBuffer) -> Result<(), EncodeFailure> {
+        proto.encode_len_delimited(METRIC_SUMMARY, |proto| {
+            let data = Summary {
+                data_points: vec![
+                    SummaryDataPoint {
+                        count: 9,
+                        sum: 33.0,
+                        quantile_values: vec![],
+                        attributes: vec![],
+                        start_time_unix_nano: 0,
+                        time_unix_nano: 0,
+                        flags: 0,
+                    },
+                    SummaryDataPoint {
+                        count: 9,
+                        sum: 33.0,
+                        quantile_values: vec![],
+                        attributes: vec![],
+                        start_time_unix_nano: 0,
+                        time_unix_nano: 0,
+                        flags: 0,
+                    },
+                ],
+            };
+            let mut bytes_data = Vec::new();
+            data.encode(&mut bytes_data).unwrap();
+            proto.extend_from_slice(&bytes_data)
+        })
+    }
+
+    // TODO: move this to payload.rs
+    #[derive(Debug, PartialEq)]
+    enum ExpectedOneOf { Sum, Gauge, Summary, AnythingElse}
+
+    fn kind(data: RawData<'_>) -> ExpectedOneOf {
+        if let Some(_) = data.as_gauge() {
+            ExpectedOneOf::Gauge
+        } else if let Some(_) = data.as_sum() {
+            ExpectedOneOf::Sum
+        } else if let Some(_) = data.as_summary() {
+            ExpectedOneOf::Summary
+        } else {
+            ExpectedOneOf::AnythingElse
+        }
+    }
+
+    fn kind_other(prost_data: &Data) -> ExpectedOneOf {
+        match prost_data {
+            Data::Sum(_) => ExpectedOneOf::Sum,
+            Data::Summary(_) => ExpectedOneOf::Summary,
+            Data::Gauge(_) => ExpectedOneOf::Gauge,
+            _ => ExpectedOneOf::AnythingElse,
+        }
+    }
+
+    #[test]
+    fn test_ill_formed_oneof_payloads_rawmetrics() {
+        let specs: [(fn(&mut ProtoBuffer) -> Result<(), EncodeFailure>, ExpectedOneOf); 3] = [
+            (
+                |proto| {
+                    proto_encode_sum(proto)?;
+                    proto_encode_summary(proto)?;
+                    proto_encode_gauge(proto)
+                },
+                ExpectedOneOf::Gauge,
+            ),
+            (
+                |proto| {
+                    proto_encode_gauge(proto)?;
+                    proto_encode_sum(proto)
+                },
+                ExpectedOneOf::Gauge,
+                // should be ExpectedOneOf::Sum,
+            ),
+            (
+                |proto| {
+                    proto_encode_sum(proto)?;
+                    proto_encode_gauge(proto)?;
+                    proto_encode_summary(proto)
+                },
+                ExpectedOneOf::Gauge,
+                // should be ExpectedOneOf::Summary,
+            ),
+        ];
+
+        for (payload_fn, expected_oneof) in specs {
+            let mut proto = ProtoBuffer::default();
+            proto
+                .encode_len_delimited(METRICS_DATA_RESOURCE_METRICS, |proto| {
+                    proto.encode_len_delimited(RESOURCE_METRICS_SCOPE_METRICS, |proto| {
+                        proto.encode_len_delimited(SCOPE_METRICS_METRICS, |proto| {
+                            proto.encode_string(METRIC_NAME, "metric1")?;
+                            proto.encode_string(METRIC_UNIT, "centimeters")?;
+                            payload_fn(proto)
+                        })
+                    })
+                })
+                .unwrap();
+
+            // TODO: decide if I want to declare the expected oneof, or call prost as a reference implementation and compare to that
+            let raw_metrics = RawMetricsData::new(proto.as_slice());
+            let prost_metrics = MetricsData::decode(proto.as_slice());
+            let raw_oneof = (|| Some(kind(raw_metrics.resources().next()?.scopes().next()?.metrics().next()?.data()?)))().expect("no data");
+            let prost_oneof = (|| Some(kind_other(prost_metrics.ok()?.resources().next()?.scopes().next()?.metrics().next()?.data()?.inner)))().expect("no data");
+            assert_eq!(raw_oneof, expected_oneof);
+            assert_eq!(prost_oneof, expected_oneof);
+        }
+    }
+
+    #[test]
+    fn test_ill_formed_oneof_payloads_rawnumberdatapoints() {
+        let mut proto = ProtoBuffer::default();
+        proto
+            .encode_len_delimited(METRICS_DATA_RESOURCE_METRICS, |proto| {
+                proto.encode_len_delimited(RESOURCE_METRICS_SCOPE_METRICS, |proto| {
+                    proto.encode_len_delimited(SCOPE_METRICS_METRICS, |proto| {
+                        proto.encode_string(METRIC_NAME, "metric1")?;
+                        proto.encode_string(METRIC_UNIT, "centimeters")?;
+                        proto.encode_len_delimited(METRIC_GAUGE, |proto| {
+                            proto.encode_len_delimited(GAUGE_DATA_POINTS, |proto| {
+                                proto.encode_field_tag(NUMBER_DP_START_TIME_UNIX_NANO, wire_types::FIXED64)?;
+                                proto.extend_from_slice(&0_u64.to_le_bytes())?;
+
+                                proto.encode_field_tag(NUMBER_DP_TIME_UNIX_NANO, wire_types::FIXED64)?;
+                                proto.extend_from_slice(&0_u64.to_le_bytes())?;
+
+                                proto.encode_field_tag(NUMBER_DP_AS_DOUBLE, wire_types::FIXED64)?;
+                                proto.extend_from_slice(&420.69_f64.to_le_bytes())?;
+
+                                proto.encode_field_tag(NUMBER_DP_AS_INT, wire_types::FIXED64)?;
+                                proto.extend_from_slice(&51_i64.to_le_bytes())
+                            })
+                        })
+                    })
+                })
+            })
+            .unwrap();
+
+        let prost_value = {
+            let prost_metrics = MetricsData::decode(proto.as_slice()).expect("should decode");
+            let resource = prost_metrics.resources().next().expect("a resource");
+            let scope = resource.scopes().next().expect("a scope");
+            let metric = scope.metrics().next().expect("a metric");
+            let data = metric.data().expect("data");
+
+            let prost_point = match data.inner {
+                Data::Gauge(gauge) => gauge.data_points[0].value,
+                _ => panic!("foo"),
+            };
+
+            match prost_point {
+                Some(number_data_point::Value::AsDouble(d)) => d,
+                Some(number_data_point::Value::AsInt(i)) => i as f64,
+                _ => panic!("foo"),
+            }
+        };
+
+        let point_value = {
+            let raw_metrics = RawMetricsData::new(proto.as_slice());
+            let resource = raw_metrics.resources().next().expect("a resource");
+            let scope = resource.scopes().next().expect("a scope");
+            let metric = scope.metrics().next().expect("a metric");
+            let data = metric.data().expect("data");
+            let gauge = data.as_gauge().expect("a gauge");
+            let point = gauge.data_points().next().expect("a data point");
+
+            match point.value() {
+                Some(Value::Double(d)) => d,
+                Some(Value::Integer(i)) => i as f64,
+                _ => panic!("foo"),
+            }
+        };
+
+        assert_eq!(prost_value, point_value);
+    }
+
+    #[test]
+    fn test_ill_formed_oneof_payloads_rawexamplar() {
+          let mut proto = ProtoBuffer::default();
+        proto
+            .encode_len_delimited(METRICS_DATA_RESOURCE_METRICS, |proto| {
+                proto.encode_len_delimited(RESOURCE_METRICS_SCOPE_METRICS, |proto| {
+                    proto.encode_len_delimited(SCOPE_METRICS_METRICS, |proto| {
+                        proto.encode_string(METRIC_NAME, "metric1")?;
+                        proto.encode_string(METRIC_UNIT, "centimeters")?;
+                        proto.encode_len_delimited(METRIC_GAUGE, |proto| {
+                            proto.encode_len_delimited(GAUGE_DATA_POINTS, |proto| {
+                                proto.encode_field_tag(NUMBER_DP_START_TIME_UNIX_NANO, wire_types::FIXED64)?;
+                                proto.extend_from_slice(&0_u64.to_le_bytes())?;
+
+                                proto.encode_field_tag(NUMBER_DP_TIME_UNIX_NANO, wire_types::FIXED64)?;
+                                proto.extend_from_slice(&0_u64.to_le_bytes())?;
+
+                                proto.encode_field_tag(NUMBER_DP_AS_INT, wire_types::FIXED64)?;
+                                proto.extend_from_slice(&51_i64.to_le_bytes())?;
+
+                                proto.encode_len_delimited(NUMBER_DP_EXEMPLARS, |proto| {
+                                    proto.encode_field_tag(EXEMPLAR_TIME_UNIX_NANO, wire_types::FIXED64)?;
+                                    proto.extend_from_slice(&0_u64.to_le_bytes())?;
+
+                                    proto.encode_field_tag(EXEMPLAR_AS_DOUBLE, wire_types::FIXED64)?;
+                                    proto.extend_from_slice(&420.69_f64.to_le_bytes())?;
+
+                                    proto.encode_field_tag(EXEMPLAR_AS_INT, wire_types::FIXED64)?;
+                                    proto.extend_from_slice(&51_u64.to_le_bytes())
+                                })
+                            })
+                        })
+                    })
+                })
+            })
+            .unwrap();
+
+        let prost_exemplar_value = {
+            let prost_metrics = MetricsData::decode(proto.as_slice()).expect("should decode");
+            let resource = prost_metrics.resources().next().expect("a resource");
+            let scope = resource.scopes().next().expect("a scope");
+            let metric = scope.metrics().next().expect("a metric");
+            let data = metric.data().expect("data");
+
+            let prost_exemplar = match data.inner {
+                Data::Gauge(gauge) => &gauge.data_points[0].exemplars[0],
+                _ => panic!("foo"),
+            };
+
+            match prost_exemplar.value {
+                Some(exemplar::Value::AsDouble(d)) => d,
+                Some(exemplar::Value::AsInt(i)) => i as f64,
+                _ => panic!("foo"),
+            }
+        };
+
+        let point_value = {
+            let raw_metrics = RawMetricsData::new(proto.as_slice());
+            let resource = raw_metrics.resources().next().expect("a resource");
+            let scope = resource.scopes().next().expect("a scope");
+            let metric = scope.metrics().next().expect("a metric");
+            let data = metric.data().expect("data");
+            let gauge = data.as_gauge().expect("a gauge");
+            let point = gauge.data_points().next().expect("a data point");
+            let exemplar = point.exemplars().next().expect("an exemplar");
+
+            match exemplar.value() {
+                Some(Value::Double(d)) => d,
+                Some(Value::Integer(i)) => i as f64,
+                _ => panic!("foo"),
+            }
+        };
+
+        assert_eq!(prost_exemplar_value, point_value);
     }
 }
