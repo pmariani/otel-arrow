@@ -2119,8 +2119,7 @@ impl ExemplarView for RawExemplar<'_> {
 mod test {
     use super::*;
     use crate::{
-        otlp::{ProtoBuffer, common::BoundedBuf},
-        proto::opentelemetry::metrics::v1::{
+        otlp::{ProtoBuffer, common::{BoundedBuf, EncodeFailure}}, proto::opentelemetry::metrics::v1::{
             Metric, MetricsData, NumberDataPoint, Sum, metric::Data, number_data_point,
         },
     };
@@ -2287,34 +2286,46 @@ mod test {
 
     #[test]
     fn test_ill_formed_oneof_payloads_data_field() {
+        fn gauge_field(proto: &mut ProtoBuffer) -> Result<(), EncodeFailure> {
+            proto.encode_len_delimited(METRIC_GAUGE, |proto| {
+                proto.encode_len_delimited(GAUGE_DATA_POINTS, |proto| {
+                    proto.encode_field_tag(NUMBER_DP_AS_DOUBLE, wire_types::FIXED64)?;
+                    proto.extend_from_slice(&3.14_f64.to_le_bytes())
+                })
+            })
+        }
+
+        fn sum_field(proto: &mut ProtoBuffer) -> Result<(), EncodeFailure> {
+            proto.encode_len_delimited(METRIC_SUM, |proto| {
+                proto.encode_len_delimited(SUM_DATA_POINTS, |proto| {
+                    proto.encode_field_tag(NUMBER_DP_AS_DOUBLE, wire_types::FIXED64)?;
+                    proto.extend_from_slice(&3.14_f64.to_le_bytes())
+                })
+            })
+        }
+
+        fn summary_field(proto: &mut ProtoBuffer) -> Result<(), EncodeFailure> {
+            proto.encode_len_delimited(METRIC_SUMMARY, |proto| {
+                proto.encode_len_delimited(SUMMARY_DATA_POINTS, |proto| {
+                    proto.encode_field_tag(SUMMARY_DP_COUNT, wire_types::FIXED64)?;
+                    proto.extend_from_slice(&0_u64.to_le_bytes())
+                })
+            })
+        }
+
         let mut proto = ProtoBuffer::default();
         proto
             .encode_len_delimited(METRICS_DATA_RESOURCE_METRICS, |proto| {
                 proto.encode_len_delimited(RESOURCE_METRICS_SCOPE_METRICS, |proto| {
                     proto.encode_len_delimited(SCOPE_METRICS_METRICS, |proto| {
                         // First instance of the OneOf field.
-                        proto.encode_len_delimited(METRIC_GAUGE, |proto| {
-                            proto.encode_len_delimited(GAUGE_DATA_POINTS, |proto| {
-                                proto.encode_field_tag(NUMBER_DP_AS_DOUBLE, wire_types::FIXED64)?;
-                                proto.extend_from_slice(&3.14_f64.to_le_bytes())
-                            })
-                        })?;
+                        gauge_field(proto)?;
 
                         // Second instance of the OneOf field.
-                        proto.encode_len_delimited(METRIC_SUM, |proto| {
-                            proto.encode_len_delimited(SUM_DATA_POINTS, |proto| {
-                                proto.encode_field_tag(NUMBER_DP_AS_DOUBLE, wire_types::FIXED64)?;
-                                proto.extend_from_slice(&3.14_f64.to_le_bytes())
-                            })
-                        })?;
+                        sum_field(proto)?;
 
                         // Third instance of the OneOf field.
-                        proto.encode_len_delimited(METRIC_SUMMARY, |proto| {
-                            proto.encode_len_delimited(SUMMARY_DATA_POINTS, |proto| {
-                                proto.encode_field_tag(SUMMARY_DP_COUNT, wire_types::FIXED64)?;
-                                proto.extend_from_slice(&0_u64.to_le_bytes())
-                            })
-                        })
+                        summary_field(proto)
                     })
                 })
             })
