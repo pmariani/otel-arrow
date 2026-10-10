@@ -2284,43 +2284,60 @@ mod test {
         assert_eq!(bucket_counts, vec![1, 2, 3]);
     }
 
+
+    type FieldEncoder = Box<dyn Fn(&mut ProtoBuffer) -> Result<(), EncodeFailure>>;
+
+    fn make_encode_float_field(field_number: u64, value: f64) -> FieldEncoder {
+        Box::new(move |proto| {
+            proto.encode_field_tag(field_number, wire_types::FIXED64)?;
+            proto.extend_from_slice(&value.to_le_bytes())
+        })
+    }
+
+    fn make_encode_int_field(field_number: u64, value: u64) -> FieldEncoder {
+        Box::new(move |proto| {
+            proto.encode_field_tag(field_number, wire_types::FIXED64)?;
+            proto.extend_from_slice(&value.to_le_bytes())
+        })
+    }
+
     #[test]
     fn test_ill_formed_oneof_payloads_data_field() {
-        fn gauge_field(proto: &mut ProtoBuffer) -> Result<(), EncodeFailure> {
-            proto.encode_len_delimited(METRIC_GAUGE, |proto| {
-                proto.encode_len_delimited(GAUGE_DATA_POINTS, |proto| {
-                    proto.encode_field_tag(NUMBER_DP_AS_DOUBLE, wire_types::FIXED64)?;
-                    proto.extend_from_slice(&3.14_f64.to_le_bytes())
+
+        fn gauge(value: f64) -> FieldEncoder {
+            Box::new(move |proto| {
+                proto.encode_len_delimited(METRIC_GAUGE, |proto| {
+                    proto.encode_len_delimited(GAUGE_DATA_POINTS, |proto| {
+                        make_encode_float_field(NUMBER_DP_AS_DOUBLE, value)(proto)
+                    })
                 })
             })
         }
 
-        fn sum_field(proto: &mut ProtoBuffer) -> Result<(), EncodeFailure> {
-            proto.encode_len_delimited(METRIC_SUM, |proto| {
-                proto.encode_len_delimited(SUM_DATA_POINTS, |proto| {
-                    proto.encode_field_tag(NUMBER_DP_AS_DOUBLE, wire_types::FIXED64)?;
-                    proto.extend_from_slice(&3.14_f64.to_le_bytes())
+        fn sum() -> FieldEncoder {
+            Box::new(move |proto| {
+                proto.encode_len_delimited(METRIC_SUM, |proto| {
+                    proto.encode_len_delimited(SUM_DATA_POINTS, |proto| {
+                        make_encode_float_field(NUMBER_DP_AS_DOUBLE, 3.14)(proto)
+                    })
                 })
             })
         }
 
-        fn summary_field(proto: &mut ProtoBuffer) -> Result<(), EncodeFailure> {
-            proto.encode_len_delimited(METRIC_SUMMARY, |proto| {
-                proto.encode_len_delimited(SUMMARY_DATA_POINTS, |proto| {
-                    proto.encode_field_tag(SUMMARY_DP_COUNT, wire_types::FIXED64)?;
-                    proto.extend_from_slice(&0_u64.to_le_bytes())
+        fn summary() -> FieldEncoder {
+            Box::new(move |proto| {
+                proto.encode_len_delimited(METRIC_SUMMARY, |proto| {
+                    proto.encode_len_delimited(SUMMARY_DATA_POINTS, |proto| {
+                        make_encode_int_field(SUMMARY_DP_COUNT, 0)(proto)
+                    })
                 })
             })
         }
-
-        type FieldEncoder = fn(&mut ProtoBuffer) -> Result<(), EncodeFailure>;
 
         let field_encoding_permutations: Vec<Vec<FieldEncoder>> = vec![
-            vec![gauge_field],
-            vec![gauge_field, sum_field],
-            vec![gauge_field, sum_field, summary_field],
-            vec![sum_field, gauge_field, summary_field],
-            vec![sum_field, summary_field, gauge_field],
+            vec![gauge(3.14), sum(), summary()],
+            vec![sum(), gauge(3.14), summary()],
+            vec![sum(), summary(), gauge(3.14)],
         ];
 
         for scenario in field_encoding_permutations {
@@ -2364,107 +2381,114 @@ mod test {
 
     #[test]
     fn test_ill_formed_oneof_payloads_number_data_point_field() {
-        let mut proto = ProtoBuffer::default();
-        proto
-            .encode_len_delimited(METRICS_DATA_RESOURCE_METRICS, |proto| {
-                proto.encode_len_delimited(RESOURCE_METRICS_SCOPE_METRICS, |proto| {
-                    proto.encode_len_delimited(SCOPE_METRICS_METRICS, |proto| {
-                        proto.encode_len_delimited(METRIC_GAUGE, |proto| {
-                            proto.encode_len_delimited(GAUGE_DATA_POINTS, |proto| {
-                                // First instance of the OneOf field.
-                                proto.encode_field_tag(NUMBER_DP_AS_DOUBLE, wire_types::FIXED64)?;
-                                proto.extend_from_slice(&3.14_f64.to_le_bytes())?;
+        let field_encoding_permutations: Vec<Vec<FieldEncoder>> = vec![
+            vec![make_encode_int_field(NUMBER_DP_AS_INT, 7), make_encode_float_field(NUMBER_DP_AS_DOUBLE, 3.14)],
+            vec![make_encode_float_field(NUMBER_DP_AS_DOUBLE, 3.14), make_encode_float_field(NUMBER_DP_AS_DOUBLE, 2.718)],
+        ];
 
-                                // Second instance of the OneOf field.
-                                proto.encode_field_tag(NUMBER_DP_AS_INT, wire_types::FIXED64)?;
-                                proto.extend_from_slice(&7_i64.to_le_bytes())
-                            })
-                        })
-                    })
-                })
-            })
-            .unwrap();
-
-        let reference_number_point_value = {
-            let prost_metrics = MetricsData::decode(proto.as_slice()).expect("should decode");
-            let resource = prost_metrics.resources().next().expect("a resource");
-            let scope = resource.scopes().next().expect("a scope");
-            let metric = scope.metrics().next().expect("a metric");
-            let data = metric.data().expect("data");
-            let gauge = data.as_gauge().expect("gauge");
-            let point = gauge.inner.data_points[0].value;
-
-            point.as_ref().map(Value::from)
-        };
-
-        let parsed_number_point_value = {
-            let raw_metrics = RawMetricsData::new(proto.as_slice());
-            let resource = raw_metrics.resources().next().expect("a resource");
-            let scope = resource.scopes().next().expect("a scope");
-            let metric = scope.metrics().next().expect("a metric");
-            let data = metric.data().expect("data");
-            let gauge = data.as_gauge().expect("a gauge");
-            let point = gauge.data_points().next().expect("a data point");
-
-            point.value()
-        };
-
-        assert_eq!(parsed_number_point_value, reference_number_point_value);
-    }
-
-    #[test]
-    fn test_ill_formed_oneof_payloads_exemplar_field() {
-        let mut proto = ProtoBuffer::default();
-        proto
-            .encode_len_delimited(METRICS_DATA_RESOURCE_METRICS, |proto| {
-                proto.encode_len_delimited(RESOURCE_METRICS_SCOPE_METRICS, |proto| {
-                    proto.encode_len_delimited(SCOPE_METRICS_METRICS, |proto| {
-                        proto.encode_len_delimited(METRIC_GAUGE, |proto| {
-                            proto.encode_len_delimited(GAUGE_DATA_POINTS, |proto| {
-                                proto.encode_len_delimited(NUMBER_DP_EXEMPLARS, |proto| {
-                                    // First instance of the OneOf field.
-                                    proto.encode_field_tag(
-                                        EXEMPLAR_AS_DOUBLE,
-                                        wire_types::FIXED64,
-                                    )?;
-                                    proto.extend_from_slice(&3.14_f64.to_le_bytes())?;
-
-                                    // Second instance of the OneOf field.
-                                    proto.encode_field_tag(EXEMPLAR_AS_INT, wire_types::FIXED64)?;
-                                    proto.extend_from_slice(&7_u64.to_le_bytes())
+        for scenario in field_encoding_permutations {
+            let mut proto = ProtoBuffer::default();
+            proto
+                .encode_len_delimited(METRICS_DATA_RESOURCE_METRICS, |proto| {
+                    proto.encode_len_delimited(RESOURCE_METRICS_SCOPE_METRICS, |proto| {
+                        proto.encode_len_delimited(SCOPE_METRICS_METRICS, |proto| {
+                            proto.encode_len_delimited(METRIC_GAUGE, |proto| {
+                                proto.encode_len_delimited(GAUGE_DATA_POINTS, |proto| {
+                                    for encode_oneof_field_fn in scenario {
+                                        encode_oneof_field_fn(proto)?;
+                                    }
+                                    Ok::<(), EncodeFailure>(())
                                 })
                             })
                         })
                     })
                 })
-            })
-            .unwrap();
+                .unwrap();
 
-        let reference_examplar_value = {
-            let prost_metrics = MetricsData::decode(proto.as_slice()).expect("should decode");
-            let resource = prost_metrics.resources().next().expect("a resource");
-            let scope = resource.scopes().next().expect("a scope");
-            let metric = scope.metrics().next().expect("a metric");
-            let data = metric.data().expect("data");
-            let gauge = data.as_gauge().expect("gauge");
-            let exemplar_value = &gauge.inner.data_points[0].exemplars[0].value;
+            let reference_number_point_value = {
+                let prost_metrics = MetricsData::decode(proto.as_slice()).expect("should decode");
+                let resource = prost_metrics.resources().next().expect("a resource");
+                let scope = resource.scopes().next().expect("a scope");
+                let metric = scope.metrics().next().expect("a metric");
+                let data = metric.data().expect("data");
+                let gauge = data.as_gauge().expect("gauge");
+                let point = gauge.inner.data_points[0].value;
 
-            exemplar_value.as_ref().map(Value::from)
-        };
+                point.as_ref().map(Value::from)
+            };
 
-        let decoded_exemplar_value = {
-            let raw_metrics = RawMetricsData::new(proto.as_slice());
-            let resource = raw_metrics.resources().next().expect("a resource");
-            let scope = resource.scopes().next().expect("a scope");
-            let metric = scope.metrics().next().expect("a metric");
-            let data = metric.data().expect("data");
-            let gauge = data.as_gauge().expect("a gauge");
-            let point = gauge.data_points().next().expect("a data point");
-            let exemplar = point.exemplars().next().expect("an exemplar");
+            let parsed_number_point_value = {
+                let raw_metrics = RawMetricsData::new(proto.as_slice());
+                let resource = raw_metrics.resources().next().expect("a resource");
+                let scope = resource.scopes().next().expect("a scope");
+                let metric = scope.metrics().next().expect("a metric");
+                let data = metric.data().expect("data");
+                let gauge = data.as_gauge().expect("a gauge");
+                let point = gauge.data_points().next().expect("a data point");
 
-            exemplar.value()
-        };
+                point.value()
+            };
 
-        assert_eq!(decoded_exemplar_value, reference_examplar_value);
+            assert_eq!(parsed_number_point_value, reference_number_point_value);
+        }
+
+    }
+
+
+    #[test]
+    fn test_ill_formed_oneof_payloads_exemplar_field() {
+        let field_encoding_permutations: Vec<Vec<FieldEncoder>> = vec![
+            vec![make_encode_float_field(EXEMPLAR_AS_DOUBLE, 3.14), make_encode_int_field(EXEMPLAR_AS_INT, 7)],
+            vec![make_encode_int_field(EXEMPLAR_AS_INT, 7), make_encode_int_field(EXEMPLAR_AS_INT, 13)],
+        ];
+
+        for scenario in field_encoding_permutations {
+            let mut proto = ProtoBuffer::default();
+            proto
+                .encode_len_delimited(METRICS_DATA_RESOURCE_METRICS, |proto| {
+                    proto.encode_len_delimited(RESOURCE_METRICS_SCOPE_METRICS, |proto| {
+                        proto.encode_len_delimited(SCOPE_METRICS_METRICS, |proto| {
+                            proto.encode_len_delimited(METRIC_GAUGE, |proto| {
+                                proto.encode_len_delimited(GAUGE_DATA_POINTS, |proto| {
+                                    proto.encode_len_delimited(NUMBER_DP_EXEMPLARS, |proto| {
+                                        for encode_oneof_field_fn in scenario {
+                                            encode_oneof_field_fn(proto)?;
+                                        }
+                                        Ok::<(), EncodeFailure>(())
+                                    })
+                                })
+                            })
+                        })
+                    })
+                })
+                .unwrap();
+
+            let reference_examplar_value = {
+                let prost_metrics = MetricsData::decode(proto.as_slice()).expect("should decode");
+                let resource = prost_metrics.resources().next().expect("a resource");
+                let scope = resource.scopes().next().expect("a scope");
+                let metric = scope.metrics().next().expect("a metric");
+                let data = metric.data().expect("data");
+                let gauge = data.as_gauge().expect("gauge");
+                let exemplar_value = &gauge.inner.data_points[0].exemplars[0].value;
+
+                exemplar_value.as_ref().map(Value::from)
+            };
+
+            let decoded_exemplar_value = {
+                let raw_metrics = RawMetricsData::new(proto.as_slice());
+                let resource = raw_metrics.resources().next().expect("a resource");
+                let scope = resource.scopes().next().expect("a scope");
+                let metric = scope.metrics().next().expect("a metric");
+                let data = metric.data().expect("data");
+                let gauge = data.as_gauge().expect("a gauge");
+                let point = gauge.data_points().next().expect("a data point");
+                let exemplar = point.exemplars().next().expect("an exemplar");
+
+                exemplar.value()
+            };
+
+            assert_eq!(decoded_exemplar_value, reference_examplar_value);
+        }
     }
 }
