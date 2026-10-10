@@ -33,7 +33,7 @@ use crate::{
         otlp::bytes::decode::{
             FieldRanges, ProtoBytesParser, RepeatedFieldProtoBytesParser,
             from_option_nonzero_range_to_primitive, read_dropped_count, read_len_delim,
-            read_varint, to_nonzero_range, validate_message_wire_format,
+            read_varint, to_nonzero_range, validate_message_wire_format, next_field,
         },
         otlp::bytes::resource::RawResource,
     },
@@ -905,4 +905,39 @@ impl StatusView for RawSpanStatus<'_> {
     fn message(&self) -> Option<otel_arrow_dfe_pdata_views::views::common::Str<'_>> {
         self.bytes_parser.advance_to_find_field(SPAN_STATUS_MESSAGE)
     }
+}
+
+/* ----------------------------- HELPER FUNCTIONS ------------------- */
+
+pub(crate) fn count_trace_spans(bytes: &[u8]) -> Result<usize, Error> {
+    let mut count: usize = 0;
+    let mut request_position = 0;
+
+    while let Some((field, wire_type, resource_bytes)) = next_field(bytes, &mut request_position)? {
+        if field != TRACES_DATA_RESOURCE_SPANS || wire_type != wire_types::LEN {
+            continue;
+        }
+
+        let mut resource_position = 0;
+
+        while let Some((field, wire_type, scope_bytes)) =
+            next_field(resource_bytes, &mut resource_position)?
+        {
+            if field != RESOURCE_SPANS_SCOPE_SPANS || wire_type != wire_types::LEN {
+                continue;
+            }
+
+            let mut scope_position = 0;
+
+            while let Some((field, wire_type, _span_bytes)) =
+                next_field(scope_bytes, &mut scope_position)?
+            {
+                if field == SCOPE_SPANS_SPANS && wire_type == wire_types::LEN {
+                    count += 1;
+                }
+            }
+        }
+    }
+
+    Ok(count)
 }

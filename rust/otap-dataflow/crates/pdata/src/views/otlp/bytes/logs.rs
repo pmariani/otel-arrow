@@ -54,7 +54,7 @@ use crate::views::otlp::bytes::common::{
 use crate::views::otlp::bytes::decode::{
     FieldRanges, ProtoBytesParser, RepeatedFieldProtoBytesParser,
     from_option_nonzero_range_to_primitive, read_dropped_count, read_len_delim, read_varint,
-    to_nonzero_range, validate_message_wire_format,
+    to_nonzero_range, validate_message_wire_format, next_field,
 };
 use crate::views::otlp::bytes::resource::RawResource;
 use otel_arrow_dfe_pdata_views::views::logs::{
@@ -543,6 +543,41 @@ impl LogRecordView for RawLogRecord<'_> {
         self.bytes_parser
             .advance_to_find_field(LOG_RECORD_EVENT_NAME)
     }
+}
+
+/* ----------------------------- HELPER FUNCTIONS ------------------- */
+
+pub(crate) fn count_logs_records(bytes: &[u8]) -> Result<usize, Error> {
+    let mut count: usize = 0;
+    let mut request_position = 0;
+
+    while let Some((field, wire_type, resource_bytes)) = next_field(bytes, &mut request_position)? {
+        if field != LOGS_DATA_RESOURCE || wire_type != wire_types::LEN {
+            continue;
+        }
+
+        let mut resource_position = 0;
+
+        while let Some((field, wire_type, scope_bytes)) =
+            next_field(resource_bytes, &mut resource_position)?
+        {
+            if field != RESOURCE_LOGS_SCOPE_LOGS || wire_type != wire_types::LEN {
+                continue;
+            }
+
+            let mut scope_position = 0;
+
+            while let Some((field, wire_type, _log_record_bytes)) =
+                next_field(scope_bytes, &mut scope_position)?
+            {
+                if field == SCOPE_LOGS_LOG_RECORDS && wire_type == wire_types::LEN {
+                    count += 1;
+                }
+            }
+        }
+    }
+
+    Ok(count)
 }
 
 #[cfg(test)]
