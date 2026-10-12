@@ -49,7 +49,7 @@ use otel_arrow_dfe_pdata_views::views::metrics::{
     ScopeMetricsView, SumView, SummaryDataPointView, SummaryView, Value, ValueAtQuantileView,
 };
 
-/// Implementation of [`MetricView`] backed by protobuf serialized `MetricsData` message
+/// Implementation of [`MetricsView`] backed by protobuf serialized `MetricsData` message
 pub struct RawMetricsData<'a> {
     buf: &'a [u8],
 }
@@ -2733,5 +2733,24 @@ mod test {
 
             assert_eq!(decoded_exemplar_value, reference_examplar_value);
         }
+    }
+
+    #[test]
+    fn test_ill_formed_scalar_fields_should_pick_last() {
+        let mut proto = ProtoBuffer::default();
+        proto
+            .encode_len_delimited(METRICS_DATA_RESOURCE_METRICS, |proto| {
+                proto.encode_string(RESOURCE_METRICS_SCHEMA_URL, "http://example.com")?;
+                proto.encode_string(RESOURCE_METRICS_SCHEMA_URL, "http://contoso.com")
+            })
+            .unwrap();
+
+            let prost_metrics = MetricsData::decode(proto.as_slice()).expect("should decode");
+            let prost_resource = prost_metrics.resources().next().expect("a resource");
+
+            let raw_metrics = RawMetricsData::new(proto.as_slice());
+            let resource = raw_metrics.resources().next().expect("a resource");
+
+            assert_eq!(prost_resource.inner.schema_url, String::from_utf8_lossy(resource.schema_url().unwrap()));
     }
 }
