@@ -38,7 +38,7 @@ use crate::views::otlp::bytes::common::{KeyValueIter, RawInstrumentationScope, R
 use crate::views::otlp::bytes::decode::{
     FieldRanges, ProtoBytesParser, RepeatedFieldEncodings, RepeatedFieldProtoBytesParser,
     RepeatedFixed64Iter, RepeatedVarintIter, decode_sint32, from_option_nonzero_range_to_primitive,
-    read_len_delim, read_varint, to_nonzero_range, validate_message_wire_format, next_field,
+    next_field, read_len_delim, read_varint, to_nonzero_range, validate_message_wire_format,
 };
 use crate::views::otlp::bytes::resource::RawResource;
 use otel_arrow_dfe_pdata_views::views::common::Str;
@@ -2217,15 +2217,20 @@ pub(crate) fn count_metrics_data_points(bytes: &[u8]) -> Result<usize, Error> {
 mod test {
     use super::*;
     use crate::{
-        otlp::{ProtoBuffer, common::{BoundedBuf, EncodeFailure}}, proto::opentelemetry::metrics::v1::{
-            Metric, MetricsData, NumberDataPoint, Sum, metric::Data, number_data_point, Summary, Gauge, SummaryDataPoint
+        otlp::{
+            ProtoBuffer,
+            common::{BoundedBuf, EncodeFailure},
+        },
+        proto::opentelemetry::metrics::v1::{
+            Gauge, Metric, MetricsData, NumberDataPoint, Sum, Summary, SummaryDataPoint,
+            metric::Data, number_data_point,
         },
     };
     use prost::Message;
 
     use crate::proto::consts::field_num::metrics::{
-        METRIC_GAUGE, METRIC_SUM, METRIC_SUMMARY, METRICS_DATA_RESOURCE_METRICS, RESOURCE_METRICS_SCOPE_METRICS,
-        SCOPE_METRICS_METRICS, METRIC_NAME, METRIC_UNIT
+        METRIC_GAUGE, METRIC_NAME, METRIC_SUM, METRIC_SUMMARY, METRIC_UNIT,
+        METRICS_DATA_RESOURCE_METRICS, RESOURCE_METRICS_SCOPE_METRICS, SCOPE_METRICS_METRICS,
     };
 
     #[test]
@@ -2480,7 +2485,7 @@ mod test {
     /// Scenario: Ill-formed metrics encode several ordered combinations of oneof fields.
     /// Guarantees: Standard decoding and byte-backed item counting use each case's final field.
     #[test]
-    fn ill_formed_metric_uses_last_oneof_field() {
+    fn test_ill_formed_metric_uses_last_oneof_field() {
         let specs: [(fn(&mut ProtoBuffer) -> Result<(), EncodeFailure>, usize); 3] = [
             (
                 |proto| {
@@ -2513,15 +2518,16 @@ mod test {
                 .encode_len_delimited(METRICS_DATA_RESOURCE_METRICS, |proto| {
                     proto.encode_len_delimited(RESOURCE_METRICS_SCOPE_METRICS, |proto| {
                         proto.encode_len_delimited(SCOPE_METRICS_METRICS, |proto| {
-                            // Could remove these 2 lines
-                            proto.encode_string(METRIC_NAME, "metric1")?;
-                            proto.encode_string(METRIC_UNIT, "centimeters")?;
                             payload_fn(proto)
                         })
                     })
                 })
                 .unwrap();
-            assert_eq!(count_metrics_data_points(proto.as_slice()).unwrap(), expected_num_items);
+            assert_eq!(
+                count_metrics_data_points(proto.as_slice()).unwrap(),
+                expected_num_items,
+                "Should have picked the last seen oneof field"
+            );
         }
     }
 
@@ -2542,9 +2548,7 @@ mod test {
     }
 
     #[test]
-    #[ignore]
     fn test_ill_formed_oneof_payloads_data_field() {
-
         fn gauge(value: f64) -> FieldEncoder {
             Box::new(move |proto| {
                 proto.encode_len_delimited(METRIC_GAUGE, |proto| {
@@ -2584,17 +2588,17 @@ mod test {
         for scenario in field_encoding_permutations {
             let mut proto = ProtoBuffer::default();
             proto
-            .encode_len_delimited(METRICS_DATA_RESOURCE_METRICS, |proto| {
-                proto.encode_len_delimited(RESOURCE_METRICS_SCOPE_METRICS, |proto| {
-                    proto.encode_len_delimited(SCOPE_METRICS_METRICS, |proto| {
-                        for encode_oneof_field_fn in scenario {
-                            encode_oneof_field_fn(proto)?;
-                        }
-                        Ok::<(), EncodeFailure>(())
+                .encode_len_delimited(METRICS_DATA_RESOURCE_METRICS, |proto| {
+                    proto.encode_len_delimited(RESOURCE_METRICS_SCOPE_METRICS, |proto| {
+                        proto.encode_len_delimited(SCOPE_METRICS_METRICS, |proto| {
+                            for encode_oneof_field_fn in scenario {
+                                encode_oneof_field_fn(proto)?;
+                            }
+                            Ok::<(), EncodeFailure>(())
+                        })
                     })
                 })
-            })
-            .unwrap();
+                .unwrap();
 
             let reference_data_type = {
                 let prost_metrics = MetricsData::decode(proto.as_slice()).expect("should decode");
@@ -2616,16 +2620,21 @@ mod test {
                 data.value_type()
             };
 
-            assert_eq!(parsed_data_type, reference_data_type);
+            assert_eq!(parsed_data_type, reference_data_type, "Custom parsing should return same oneof field type as Prost when multiple oneof fields are encoded");
         }
     }
 
     #[test]
-    #[ignore]
     fn test_ill_formed_oneof_payloads_number_data_point_field() {
         let field_encoding_permutations: Vec<Vec<FieldEncoder>> = vec![
-            vec![make_encode_int_field(NUMBER_DP_AS_INT, 7), make_encode_float_field(NUMBER_DP_AS_DOUBLE, 3.14)],
-            vec![make_encode_float_field(NUMBER_DP_AS_DOUBLE, 3.14), make_encode_float_field(NUMBER_DP_AS_DOUBLE, 2.718)],
+            vec![
+                make_encode_int_field(NUMBER_DP_AS_INT, 7),
+                make_encode_float_field(NUMBER_DP_AS_DOUBLE, 3.14),
+            ],
+            vec![
+                make_encode_float_field(NUMBER_DP_AS_DOUBLE, 3.14),
+                make_encode_float_field(NUMBER_DP_AS_DOUBLE, 2.718),
+            ],
         ];
 
         for scenario in field_encoding_permutations {
@@ -2636,8 +2645,8 @@ mod test {
                         proto.encode_len_delimited(SCOPE_METRICS_METRICS, |proto| {
                             proto.encode_len_delimited(METRIC_GAUGE, |proto| {
                                 proto.encode_len_delimited(GAUGE_DATA_POINTS, |proto| {
-                                    for encode_oneof_field_fn in scenario {
-                                        encode_oneof_field_fn(proto)?;
+                                    for encode_field_fn in scenario {
+                                        encode_field_fn(proto)?;
                                     }
                                     Ok::<(), EncodeFailure>(())
                                 })
@@ -2671,18 +2680,22 @@ mod test {
                 point.value()
             };
 
-            assert_eq!(parsed_number_point_value, reference_number_point_value);
+            assert_eq!(parsed_number_point_value, reference_number_point_value, "Custom parsing should return same numerical value as Prost when multiple fields are set (and use the last one)");
+            println!("got {:?}", parsed_number_point_value);
         }
-
     }
 
-
     #[test]
-    #[ignore]
     fn test_ill_formed_oneof_payloads_exemplar_field() {
         let field_encoding_permutations: Vec<Vec<FieldEncoder>> = vec![
-            vec![make_encode_float_field(EXEMPLAR_AS_DOUBLE, 3.14), make_encode_int_field(EXEMPLAR_AS_INT, 7)],
-            vec![make_encode_int_field(EXEMPLAR_AS_INT, 7), make_encode_int_field(EXEMPLAR_AS_INT, 13)],
+            vec![
+                make_encode_float_field(EXEMPLAR_AS_DOUBLE, 3.14),
+                make_encode_int_field(EXEMPLAR_AS_INT, 7),
+            ],
+            vec![
+                make_encode_int_field(EXEMPLAR_AS_INT, 7),
+                make_encode_int_field(EXEMPLAR_AS_INT, 13),
+            ],
         ];
 
         for scenario in field_encoding_permutations {
@@ -2694,8 +2707,8 @@ mod test {
                             proto.encode_len_delimited(METRIC_GAUGE, |proto| {
                                 proto.encode_len_delimited(GAUGE_DATA_POINTS, |proto| {
                                     proto.encode_len_delimited(NUMBER_DP_EXEMPLARS, |proto| {
-                                        for encode_oneof_field_fn in scenario {
-                                            encode_oneof_field_fn(proto)?;
+                                        for encode_field_fn in scenario {
+                                            encode_field_fn(proto)?;
                                         }
                                         Ok::<(), EncodeFailure>(())
                                     })
@@ -2731,7 +2744,7 @@ mod test {
                 exemplar.value()
             };
 
-            assert_eq!(decoded_exemplar_value, reference_examplar_value);
+            assert_eq!(decoded_exemplar_value, reference_examplar_value, "Custom parsing should return same numerical value as Prost when multiple fields are set (and use the last one)");
         }
     }
 
@@ -2745,12 +2758,113 @@ mod test {
             })
             .unwrap();
 
-            let prost_metrics = MetricsData::decode(proto.as_slice()).expect("should decode");
-            let prost_resource = prost_metrics.resources().next().expect("a resource");
+        let prost_metrics = MetricsData::decode(proto.as_slice()).expect("should decode");
+        let prost_resource = prost_metrics.resources().next().expect("a resource");
 
+        let raw_metrics = RawMetricsData::new(proto.as_slice());
+        let resource = raw_metrics.resources().next().expect("a resource");
+
+        assert_eq!(
+            prost_resource.inner.schema_url,
+            String::from_utf8_lossy(resource.schema_url().unwrap()),
+            "Custom parsing should return same string value as Prost when multiple fields are set (and use the last one)"
+        );
+    }
+
+    #[test]
+    fn test_ill_formed_repeated_merge() {
+        let mut proto = ProtoBuffer::default();
+        proto
+            .encode_len_delimited(METRICS_DATA_RESOURCE_METRICS, |proto| {
+                proto.encode_len_delimited(RESOURCE_METRICS_SCOPE_METRICS, |proto| {
+                    proto.encode_len_delimited(SCOPE_METRICS_METRICS, |proto| {
+                        proto.encode_len_delimited(METRIC_GAUGE, |proto| {
+                            proto.encode_len_delimited(GAUGE_DATA_POINTS, |proto| {
+                                make_encode_int_field(NUMBER_DP_AS_INT, 7)(proto)?;
+                                make_encode_int_field(NUMBER_DP_AS_INT, 8)(proto)
+                            })?;
+                            proto.encode_len_delimited(GAUGE_DATA_POINTS, |proto| {
+                                make_encode_int_field(NUMBER_DP_AS_INT, 9)(proto)
+                            })
+                        })
+                    })
+                })
+            })
+            .unwrap();
+
+        let reference_num_items = {
+            let prost_metrics = MetricsData::decode(proto.as_slice()).expect("should decode");
+            let resource = prost_metrics.resources().next().expect("a resource");
+            let scope = resource.scopes().next().expect("a scope");
+            let metric = scope.metrics().next().expect("a metric");
+            let data = metric.data().expect("data");
+            let gauge = data.as_gauge().expect("gauge");
+            gauge.inner.data_points.len()
+        };
+
+        let parsed_num_items = count_metrics_data_points(proto.as_slice()).unwrap();
+
+        assert_eq!(parsed_num_items, reference_num_items);
+        assert_eq!(1, reference_num_items, "I don't understand why the last field isn't the selected one");
+    }
+
+    /// Scenario: A histogram data point encodes bucket counts in two packed field occurrences.
+    /// Guarantees: The byte-backed view merges both occurrences in wire order like Prost.
+    #[test]
+    fn test_ill_formed_repeated_histogram_bucket_counts_merge() {
+        let mut proto = ProtoBuffer::default();
+        proto
+            .encode_len_delimited(METRICS_DATA_RESOURCE_METRICS, |proto| {
+                proto.encode_len_delimited(RESOURCE_METRICS_SCOPE_METRICS, |proto| {
+                    proto.encode_len_delimited(SCOPE_METRICS_METRICS, |proto| {
+                        proto.encode_len_delimited(METRIC_HISTOGRAM, |proto| {
+                            proto.encode_len_delimited(HISTOGRAM_DATA_POINTS, |proto| {
+                                proto.encode_len_delimited(
+                                    HISTOGRAM_DP_BUCKET_COUNTS,
+                                    |proto| {
+                                        proto.extend_from_slice(&7u64.to_le_bytes())?;
+                                        proto.extend_from_slice(&8u64.to_le_bytes())
+                                    },
+                                )?;
+                                make_encode_int_field(HISTOGRAM_DP_COUNT, 22)(proto)?;
+                                proto.encode_len_delimited(HISTOGRAM_DP_BUCKET_COUNTS, |proto| {
+                                    proto.extend_from_slice(&9u64.to_le_bytes())
+                                })
+                            })
+                        })
+                    })
+                })
+            })
+            .unwrap();
+
+        let reference_bucket_counts = {
+            let prost_metrics = MetricsData::decode(proto.as_slice()).expect("should decode");
+            let resource = prost_metrics.resources().next().expect("a resource");
+            let scope = resource.scopes().next().expect("a scope");
+            let metric = scope.metrics().next().expect("a metric");
+            let data = metric.data().expect("data");
+            let histogram = data.as_histogram().expect("histogram");
+            histogram
+                .inner
+                .data_points
+                .first()
+                .expect("a data point")
+                .bucket_counts
+                .clone()
+        };
+
+        let parsed_bucket_counts = {
             let raw_metrics = RawMetricsData::new(proto.as_slice());
             let resource = raw_metrics.resources().next().expect("a resource");
+            let scope = resource.scopes().next().expect("a scope");
+            let metric = scope.metrics().next().expect("a metric");
+            let data = metric.data().expect("data");
+            let histogram = data.as_histogram().expect("histogram");
+            let data_point = histogram.data_points().next().expect("a data point");
+            data_point.bucket_counts().collect::<Vec<_>>()
+        };
 
-            assert_eq!(prost_resource.inner.schema_url, String::from_utf8_lossy(resource.schema_url().unwrap()));
+        assert_eq!(parsed_bucket_counts, reference_bucket_counts);
+        assert_eq!(reference_bucket_counts, vec![7, 8, 9]);
     }
 }
